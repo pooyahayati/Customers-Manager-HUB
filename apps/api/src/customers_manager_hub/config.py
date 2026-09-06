@@ -1,7 +1,7 @@
 from functools import lru_cache
 from typing import Literal, Self
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 AppEnvironment = Literal["development", "test", "staging", "production"]
@@ -24,6 +24,9 @@ class Settings(BaseSettings):
     database_url: str = "postgresql://cmh:change-me@localhost:5432/customers_manager_hub"
     redis_url: str = "redis://localhost:6379/0"
     dependency_timeout_seconds: int = Field(default=2, ge=1, le=30)
+
+    openai_api_key: SecretStr | None = None
+    google_gemini_api_key: SecretStr | None = None
 
     @field_validator("app_log_level")
     @classmethod
