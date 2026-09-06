@@ -21,9 +21,7 @@ class Settings(BaseSettings):
     app_debug: bool = False
     app_log_level: str = "INFO"
 
-    database_url: str = (
-        "postgresql://cmh:change-me@localhost:5432/customers_manager_hub"
-    )
+    database_url: str = "postgresql://cmh:change-me@localhost:5432/customers_manager_hub"
     redis_url: str = "redis://localhost:6379/0"
     dependency_timeout_seconds: int = Field(default=2, ge=1, le=30)
 
