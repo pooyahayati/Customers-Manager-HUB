@@ -1,0 +1,41 @@
+name: Web Compose Smoke Temporary
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  compose-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.head_ref }}
+
+      - name: Validate compose
+        run: docker compose -f compose.yaml config --quiet
+
+      - name: Build and start stack
+        run: docker compose -f compose.yaml up -d --build
+
+      - name: Verify runtime
+        run: |
+          timeout 120 bash -c 'until curl --fail --silent http://127.0.0.1:8000/ready >/dev/null; do sleep 2; done'
+          timeout 120 bash -c 'until curl --fail --silent http://127.0.0.1:3000/ >/dev/null; do sleep 2; done'
+          docker compose -f compose.yaml ps
+          test "$(docker compose -f compose.yaml ps --status running --services | wc -l)" -eq 4
+
+      - name: Logs on failure
+        if: failure()
+        run: docker compose -f compose.yaml logs --no-color || true
+
+      - name: Cleanup
+        if: always()
+        run: docker compose -f compose.yaml down -v --remove-orphans
