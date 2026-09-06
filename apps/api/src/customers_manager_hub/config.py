@@ -25,6 +25,9 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379/0"
     dependency_timeout_seconds: int = Field(default=2, ge=1, le=30)
 
+    session_cookie_name: str = "cmh_session"
+    session_lifetime_seconds: int = Field(default=604800, ge=300, le=2592000)
+
     @field_validator("app_log_level")
     @classmethod
     def validate_log_level(cls, value: str) -> str:
@@ -58,6 +61,18 @@ class Settings(BaseSettings):
     def postgres_dsn(self) -> str:
         """Return a Psycopg-compatible PostgreSQL DSN."""
         return self.database_url.replace("postgresql+psycopg://", "postgresql://", 1)
+
+    @property
+    def sqlalchemy_database_url(self) -> str:
+        """Return the SQLAlchemy URL using the Psycopg driver explicitly."""
+        if self.database_url.startswith("postgresql+psycopg://"):
+            return self.database_url
+        return self.database_url.replace("postgresql://", "postgresql+psycopg://", 1)
+
+    @property
+    def session_cookie_secure(self) -> bool:
+        """Use secure cookies outside local/test environments."""
+        return self.app_env in {"staging", "production"}
 
 
 @lru_cache(maxsize=1)
