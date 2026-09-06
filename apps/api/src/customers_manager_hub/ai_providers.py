@@ -362,6 +362,8 @@ class OpenAIAdapter:
     ) -> TranscriptionResult:
         data: dict[str, str] = {"model": model_id}
         for key, value in parameters.items():
+            if key.strip().casefold() in {"model", "file"}:
+                raise AIProviderError("openai_reserved_transcription_parameter", retryable=False)
             if isinstance(value, bool):
                 data[key] = "true" if value else "false"
             elif isinstance(value, (str, int, float)):
