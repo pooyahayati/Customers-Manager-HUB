@@ -37,6 +37,9 @@ jobs:
       - name: Verify frozen install
         run: pnpm install --frozen-lockfile
 
+      - name: Verify peers
+        run: pnpm peers check
+
       - name: Lint
         run: pnpm lint
 
