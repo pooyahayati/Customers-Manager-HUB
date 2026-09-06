@@ -15,7 +15,7 @@ from customers_manager_hub.channel_runtime import (
     process_channel_event,
 )
 from customers_manager_hub.config import Settings, get_settings
-from customers_manager_hub.database import create_database
+from customers_manager_hub.database import AsyncSessionFactory, create_database
 from customers_manager_hub.health import check_postgres, check_redis
 from customers_manager_hub.logging_config import configure_logging
 from customers_manager_hub.telegram import TelegramAdapter
@@ -38,14 +38,10 @@ async def _process_job(
     queue: ChannelJobQueue,
     registry: ChannelRegistry,
     settings: Settings,
-    session_factory: object,
+    session_factory: AsyncSessionFactory,
 ) -> None:
-    from customers_manager_hub.database import AsyncSessionFactory
-
-    typed_session_factory = session_factory
-    assert isinstance(typed_session_factory, AsyncSessionFactory)
     try:
-        await process_channel_event(typed_session_factory, registry, settings, job.event_id)
+        await process_channel_event(session_factory, registry, settings, job.event_id)
     except ChannelProviderError as exc:
         logger.warning(
             "channel provider job failed",
@@ -53,13 +49,13 @@ async def _process_job(
         )
         if exc.retryable:
             return
-        await mark_event_ignored(typed_session_factory, job.event_id, exc.code)
+        await mark_event_ignored(session_factory, job.event_id, exc.code)
     except ChannelRuntimeError as exc:
         logger.error(
             "channel runtime job rejected",
             extra={"event_id": str(job.event_id), "error_code": exc.code},
         )
-        await mark_event_ignored(typed_session_factory, job.event_id, exc.code)
+        await mark_event_ignored(session_factory, job.event_id, exc.code)
     except Exception:
         logger.exception("channel job failed", extra={"event_id": str(job.event_id)})
         return
