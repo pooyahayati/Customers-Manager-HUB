@@ -1,5 +1,6 @@
 from functools import lru_cache
 from typing import Literal, Self
+from urllib.parse import urlsplit
 
 from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -24,6 +25,9 @@ class Settings(BaseSettings):
     database_url: str = "postgresql://cmh:change-me@localhost:5432/customers_manager_hub"
     redis_url: str = "redis://localhost:6379/0"
     dependency_timeout_seconds: int = Field(default=2, ge=1, le=30)
+
+    encryption_key: SecretStr | None = None
+    telegram_webhook_base_url: str | None = None
 
     openai_api_key: SecretStr | None = None
     google_gemini_api_key: SecretStr | None = None
@@ -51,10 +55,31 @@ class Settings(BaseSettings):
             raise ValueError("REDIS_URL must use redis:// or rediss://")
         return value
 
+    @field_validator("telegram_webhook_base_url")
+    @classmethod
+    def validate_telegram_webhook_base_url(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip().rstrip("/")
+        if not normalized:
+            return None
+        parsed = urlsplit(normalized)
+        if parsed.scheme not in {"http", "https"} or parsed.hostname is None:
+            raise ValueError("TELEGRAM_WEBHOOK_BASE_URL must be an absolute HTTP(S) URL")
+        if parsed.query or parsed.fragment:
+            raise ValueError("TELEGRAM_WEBHOOK_BASE_URL must not include query or fragment")
+        return normalized
+
     @model_validator(mode="after")
     def reject_insecure_production_defaults(self) -> Self:
         if self.app_env == "production" and "change-me" in self.database_url:
             raise ValueError("Production DATABASE_URL must not use bootstrap credentials")
+        if self.app_env in {"staging", "production"} and self.telegram_webhook_base_url is not None:
+            if not self.telegram_webhook_base_url.startswith("https://"):
+                raise ValueError("Staging/production Telegram webhook base URL must use HTTPS")
+        if self.app_env in {"staging", "production"} and self.encryption_key is not None:
+            if self.encryption_key.get_secret_value() == "change-me":
+                raise ValueError("Staging/production ENCRYPTION_KEY must not use a placeholder")
         return self
 
     @property
