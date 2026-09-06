@@ -53,5 +53,6 @@ If an accepted decision materially changes, create a new ADR that supersedes the
 - ADR-006 — Defer Self-Hosted Object Storage Backend Selection
 - ADR-007 — Separate Admin Console and Customer Webchat
 - ADR-008 — Server-Side Admin Sessions and Explicit Tenant Context
+- ADR-009 — Contact Identity and Message Idempotency Boundaries
 
 Additional ADRs should be created only when a material implementation decision becomes imminent.
