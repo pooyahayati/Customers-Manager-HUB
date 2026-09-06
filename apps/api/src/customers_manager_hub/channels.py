@@ -109,7 +109,7 @@ class ChannelUpdate(BaseModel):
         return value
 
     @model_validator(mode="after")
-    def require_change(self) -> "ChannelUpdate":
+    def require_change(self) -> ChannelUpdate:
         if self.name is None and self.is_active is None and self.enabled_inbound_types is None:
             raise ValueError("At least one channel setting must be supplied")
         return self
