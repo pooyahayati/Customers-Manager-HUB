@@ -1,6 +1,7 @@
 import pytest
-from customers_manager_hub.config import Settings
 from pydantic import ValidationError
+
+from customers_manager_hub.config import Settings
 
 
 def test_settings_parse_environment(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -13,7 +14,7 @@ def test_settings_parse_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     )
     monkeypatch.setenv("REDIS_URL", "redis://cache:6379/2")
 
-    settings = Settings(_env_file=None)
+    settings = Settings(_env_file=None)  # pyright: ignore[reportCallIssue]
 
     assert settings.app_env == "test"
     assert settings.app_debug is True
@@ -27,5 +28,5 @@ def test_production_rejects_bootstrap_database_credentials() -> None:
         Settings(
             app_env="production",
             database_url=("postgresql://cmh:change-me@postgres:5432/customers_manager_hub"),
-            _env_file=None,
+            _env_file=None,  # pyright: ignore[reportCallIssue]
         )
