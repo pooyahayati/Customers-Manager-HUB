@@ -114,6 +114,25 @@ def create_viewer(tenant_id: UUID) -> UUID:
         return user.id
 
 
+def create_admin(tenant_id: UUID) -> UUID:
+    with Session(SYNC_ENGINE, expire_on_commit=False) as db:
+        user = PlatformUser(
+            email="admin@example.com",
+            password_hash=hash_password("admin password 1234"),
+        )
+        db.add(user)
+        db.flush()
+        db.add(
+            TenantMembership(
+                tenant_id=tenant_id,
+                user_id=user.id,
+                role=TenantRole.ADMIN.value,
+            )
+        )
+        db.commit()
+        return user.id
+
+
 def test_bootstrap_is_single_use_and_audited() -> None:
     tenant_id, owner_id = bootstrap_owner()
 
@@ -259,6 +278,62 @@ def test_login_tenant_isolation_rbac_audit_and_logout() -> None:
             )
             assert revoked_session is not None
             assert revoked_session.revoked_at is not None
+
+
+def test_admin_can_update_tenant_profile() -> None:
+    tenant_id, _ = bootstrap_owner()
+    admin_id = create_admin(tenant_id)
+
+    with TestClient(create_app(TEST_SETTINGS)) as client:
+        login = client_post(
+            client,
+            "/api/v1/auth/login",
+            json={"email": "admin@example.com", "password": "admin password 1234"},
+        )
+        assert login.status_code == 200
+
+        updated = client_patch(
+            client,
+            f"/api/v1/tenants/{tenant_id}",
+            json={"name": "Admin Updated Store"},
+        )
+        assert updated.status_code == 200
+        assert updated.json()["name"] == "Admin Updated Store"
+        assert updated.json()["role"] == "admin"
+
+    with Session(SYNC_ENGINE) as db:
+        audit = db.scalar(
+            select(AuditEvent).where(
+                AuditEvent.action == "tenant.updated",
+                AuditEvent.actor_user_id == admin_id,
+            )
+        )
+        assert audit is not None
+        assert audit.tenant_id == tenant_id
+
+
+def test_inactive_user_session_is_rejected() -> None:
+    _, owner_id = bootstrap_owner()
+
+    with TestClient(create_app(TEST_SETTINGS)) as client:
+        login = client_post(
+            client,
+            "/api/v1/auth/login",
+            json={
+                "email": "owner@example.com",
+                "password": "correct horse battery staple",
+            },
+        )
+        assert login.status_code == 200
+        assert client_get(client, "/api/v1/auth/me").status_code == 200
+
+        with Session(SYNC_ENGINE) as db:
+            owner = db.get(PlatformUser, owner_id)
+            assert owner is not None
+            owner.is_active = False
+            db.commit()
+
+        assert client_get(client, "/api/v1/auth/me").status_code == 401
 
 
 def test_expired_session_is_rejected() -> None:
