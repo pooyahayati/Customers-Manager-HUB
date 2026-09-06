@@ -5,6 +5,7 @@ import secrets
 from pwdlib import PasswordHash
 
 password_hasher = PasswordHash.recommended()
+DUMMY_PASSWORD_HASH = password_hasher.hash("cmh-dummy-login-password")
 _slug_pattern = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
 
 
