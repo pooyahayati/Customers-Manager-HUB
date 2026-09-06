@@ -4,6 +4,7 @@ from alembic import context
 from sqlalchemy import create_engine, pool
 
 from customers_manager_hub import ai_models as _ai_models  # noqa: F401
+from customers_manager_hub import channel_models as _channel_models  # noqa: F401
 from customers_manager_hub.config import get_settings
 from customers_manager_hub.models import Base
 
