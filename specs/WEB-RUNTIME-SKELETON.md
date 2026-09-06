@@ -3,11 +3,13 @@
 **Branch:** `feat/web-runtime-skeleton`  
 **Parent specification:** `specs/MILESTONE-1-RUNTIME-SKELETON.md`
 
-This document defines only the frontend implementation slice of Milestone 1. The parent specification and approved technical baseline remain authoritative.
+This document defines only the frontend implementation slice of Milestone 1. The parent specification, approved technical baseline, and ADR-007 remain authoritative.
 
 ## Goal
 
 Create the smallest production-oriented Next.js runtime that proves the web application can install reproducibly, type-check, lint, build, run in Docker, and respond over HTTP.
+
+`apps/web` is the runtime foundation for the **Admin Console**. It is not the customer-facing Website Chat/Webchat client. The customer Webchat will be a separate lightweight frontend artifact created only when the Website Channel milestone begins, as defined by ADR-007.
 
 No product UI or business behavior is part of this slice.
 
@@ -44,7 +46,7 @@ apps/web/Dockerfile
 
 Additional generated Next.js type/config files may be committed only if the selected Next.js setup genuinely requires them.
 
-Do not create shared packages or empty future directories.
+Do not create shared packages, Webchat packages, or empty future directories.
 
 ## Root workspace
 
@@ -62,7 +64,7 @@ Do not add a monorepo orchestration framework such as Turborepo or Nx at this st
 
 Use the Next.js App Router.
 
-The initial page must remain intentionally minimal and may contain only a simple bootstrap message such as:
+This application is the future Admin Console surface, but the initial page must remain intentionally minimal and may contain only a simple bootstrap message such as:
 
 ```text
 Customers Manager HUB
@@ -72,6 +74,8 @@ System bootstrap running
 No dashboard mockups, navigation systems, authentication screens, charts, forms, fake data, or product placeholders.
 
 Use plain CSS only for the minimal bootstrap page. Do not add a UI framework or CSS framework.
+
+Do not implement or embed the customer-facing Webchat in this application.
 
 ## Dependency policy
 
@@ -146,7 +150,7 @@ This frontend slice must not implement:
 - Authentication or RBAC UI.
 - Tenant management.
 - Admin dashboard.
-- Website chat widget.
+- Website chat widget or customer Webchat runtime.
 - API client/domain SDK.
 - AI/agent configuration screens.
 - Contacts, conversations, analytics, knowledge, tools, handoff, or settings pages.
