@@ -5,6 +5,8 @@ from fastapi import FastAPI
 
 from customers_manager_hub.auth import router as auth_router
 from customers_manager_hub.config import Settings, get_settings
+from customers_manager_hub.contacts import router as contacts_router
+from customers_manager_hub.conversations import router as conversations_router
 from customers_manager_hub.database import create_database
 from customers_manager_hub.health import router as health_router
 from customers_manager_hub.logging_config import configure_logging
@@ -34,6 +36,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.include_router(health_router)
     application.include_router(auth_router)
     application.include_router(tenants_router)
+    application.include_router(contacts_router)
+    application.include_router(conversations_router)
     return application
 
 
