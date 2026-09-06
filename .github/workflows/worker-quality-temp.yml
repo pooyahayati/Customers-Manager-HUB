@@ -1,0 +1,63 @@
+name: Worker Quality Temporary
+
+on:
+  push:
+    branches:
+      - feat/worker-runtime-skeleton
+
+permissions:
+  contents: read
+
+jobs:
+  worker-quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v7
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version-file: .python-version
+
+      - name: Install uv
+        run: python -m pip install --disable-pip-version-check uv==0.12.10
+
+      - name: Sync dependencies
+        run: uv sync --frozen
+
+      - name: Ruff format check
+        run: uv run ruff format --check .
+
+      - name: Ruff lint
+        run: uv run ruff check .
+
+      - name: Pyright
+        run: uv run pyright
+
+      - name: Pytest
+        run: uv run pytest
+
+      - name: Worker process smoke
+        run: |
+          set -euo pipefail
+          uv run python -m customers_manager_hub.worker >worker.log 2>&1 &
+          pid=$!
+          for _ in $(seq 1 20); do
+            if grep -q 'worker started' worker.log; then
+              break
+            fi
+            if ! kill -0 "$pid" 2>/dev/null; then
+              cat worker.log
+              exit 1
+            fi
+            sleep 0.25
+          done
+          grep -q 'worker started' worker.log
+          kill -TERM "$pid"
+          wait "$pid"
+          grep -q 'worker shutdown requested' worker.log
+          grep -q 'worker stopped' worker.log
+          cat worker.log
