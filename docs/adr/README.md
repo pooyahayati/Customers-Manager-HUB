@@ -52,5 +52,6 @@ If an accepted decision materially changes, create a new ADR that supersedes the
 - ADR-005 — Event-Driven Inbound Message Processing
 - ADR-006 — Defer Self-Hosted Object Storage Backend Selection
 - ADR-007 — Separate Admin Console and Customer Webchat
+- ADR-008 — Server-Side Admin Sessions and Explicit Tenant Context
 
 Additional ADRs should be created only when a material implementation decision becomes imminent.
