@@ -1,10 +1,10 @@
 import base64
 import json
-from typing import cast
+from typing import TypeVar, cast
 from urllib.parse import quote
 
 import httpx2
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from customers_manager_hub.ai_gateway import (
     AIOperation,
@@ -24,6 +24,7 @@ OPENAI_BASE_URL = "https://api.openai.com/v1"
 GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
 GEMINI_INLINE_AUDIO_LIMIT_BYTES = 20 * 1024 * 1024
 LIVE_AI_PROVIDER_KEYS = frozenset({"openai", "gemini"})
+ResponseModelT = TypeVar("ResponseModelT", bound=BaseModel)
 
 
 class _OpenAIContent(BaseModel):
@@ -179,6 +180,17 @@ def _is_retryable_status(status_code: int) -> bool:
     return status_code in {408, 409, 425, 429} or status_code >= 500
 
 
+def _validate_provider_response(
+    model: type[ResponseModelT],
+    payload: object,
+    provider: str,
+) -> ResponseModelT:
+    try:
+        return model.model_validate(payload)
+    except ValidationError as exc:
+        raise AIProviderError(f"{provider}_invalid_response", retryable=True) from exc
+
+
 async def _post_json(
     client: httpx2.AsyncClient,
     *,
@@ -300,7 +312,7 @@ class OpenAIAdapter:
             payload=payload,
             timeout_seconds=timeout_seconds,
         )
-        parsed = _OpenAIResponse.model_validate(raw_payload)
+        parsed = _validate_provider_response(_OpenAIResponse, raw_payload, self.key)
         text = _openai_text(parsed)
         structured = _parse_structured_json(text) if request.json_schema is not None else None
         request_id = parsed.id or raw_response.headers.get("x-request-id")
@@ -330,7 +342,7 @@ class OpenAIAdapter:
             payload=payload,
             timeout_seconds=timeout_seconds,
         )
-        parsed = _OpenAIEmbeddingResponse.model_validate(raw_payload)
+        parsed = _validate_provider_response(_OpenAIEmbeddingResponse, raw_payload, self.key)
         ordered = sorted(parsed.data, key=lambda item: item.index)
         if len(ordered) != len(request.inputs):
             raise AIProviderError("openai_embedding_count_mismatch", retryable=True)
@@ -380,7 +392,7 @@ class OpenAIAdapter:
             raw_payload: object = response.json()
         except ValueError as exc:
             raise AIProviderError("openai_invalid_response", retryable=True) from exc
-        parsed = _OpenAITranscriptionResponse.model_validate(raw_payload)
+        parsed = _validate_provider_response(_OpenAITranscriptionResponse, raw_payload, self.key)
         return TranscriptionResult(
             provider=self.key,
             model_id=model_id,
@@ -442,7 +454,7 @@ class GeminiAdapter:
             payload=payload,
             timeout_seconds=timeout_seconds,
         )
-        parsed = _GeminiResponse.model_validate(raw_payload)
+        parsed = _validate_provider_response(_GeminiResponse, raw_payload, self.key)
         text = _gemini_text(parsed)
         structured = _parse_structured_json(text) if request.json_schema is not None else None
         return GenerationResult(
@@ -479,7 +491,7 @@ class GeminiAdapter:
             payload={"requests": requests},
             timeout_seconds=timeout_seconds,
         )
-        parsed = _GeminiEmbeddingResponse.model_validate(raw_payload)
+        parsed = _validate_provider_response(_GeminiEmbeddingResponse, raw_payload, self.key)
         if len(parsed.embeddings) != len(request.inputs):
             raise AIProviderError("gemini_embedding_count_mismatch", retryable=True)
         return EmbeddingResult(
@@ -526,7 +538,7 @@ class GeminiAdapter:
             payload=payload,
             timeout_seconds=timeout_seconds,
         )
-        parsed = _GeminiResponse.model_validate(raw_payload)
+        parsed = _validate_provider_response(_GeminiResponse, raw_payload, self.key)
         return TranscriptionResult(
             provider=self.key,
             model_id=model_id,
