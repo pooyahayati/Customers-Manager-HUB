@@ -1,11 +1,10 @@
 from unittest.mock import AsyncMock
 
 import pytest
-from fastapi.testclient import TestClient
-
 from customers_manager_hub import health as health_module
 from customers_manager_hub.config import Settings
 from customers_manager_hub.main import create_app
+from fastapi.testclient import TestClient
 
 
 def test_settings() -> Settings:
