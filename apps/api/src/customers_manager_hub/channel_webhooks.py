@@ -77,9 +77,11 @@ async def telegram_webhook(
     if not secrets.compare_digest(supplied_secret, expected_secret):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED)
 
-    body = await request.body()
-    if len(body) > _MAX_TELEGRAM_WEBHOOK_BYTES:
-        raise HTTPException(status_code=status.HTTP_413_CONTENT_TOO_LARGE)
+    body = bytearray()
+    async for chunk in request.stream():
+        if len(body) + len(chunk) > _MAX_TELEGRAM_WEBHOOK_BYTES:
+            raise HTTPException(status_code=status.HTTP_413_CONTENT_TOO_LARGE)
+        body.extend(chunk)
     try:
         payload: object = json.loads(body)
     except (JSONDecodeError, UnicodeDecodeError, ValueError) as exc:

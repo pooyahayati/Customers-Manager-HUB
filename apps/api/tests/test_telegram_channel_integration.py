@@ -34,7 +34,7 @@ from customers_manager_hub.channel_queue import (
     ChannelJobQueue,
     create_channel_redis,
 )
-from customers_manager_hub.channel_runtime import process_channel_event
+from customers_manager_hub.channel_runtime import dispatch_text, process_channel_event
 from customers_manager_hub.channel_security import decrypt_channel_secret
 from customers_manager_hub.config import Settings
 from customers_manager_hub.database import create_database
@@ -45,6 +45,7 @@ from customers_manager_hub.models import (
     ExternalIdentity,
     Message,
     MessageAttachment,
+    MessageAuthorType,
     MessageDirection,
     MessageType,
     PlatformUser,
@@ -131,6 +132,7 @@ class FakeTelegramAdapter:
         external_thread_id: str,
         text: str,
     ) -> ChannelSendResult:
+        await asyncio.sleep(0.05)
         self.send_calls.append((access_secret, external_thread_id, text))
         self.next_message_id += 1
         return ChannelSendResult(
@@ -595,6 +597,40 @@ def test_outbound_text_dispatch_is_role_scoped_and_idempotent() -> None:
         assert repeated.status_code == 200
         assert repeated.json()["id"] == sent.json()["id"]
         assert len(adapter.send_calls) == 1
+
+        conflicting = supervisor_client.post(
+            f"/api/v1/tenants/{tenant_id}/channels/{account_id}/send-text",
+            json={**payload, "text": "Different reply"},
+        )
+        assert conflicting.status_code == 409
+        assert len(adapter.send_calls) == 1
+
+        async def send_concurrently() -> list[UUID]:
+            engine, session_factory = create_database(TEST_SETTINGS)
+
+            async def send_once() -> UUID:
+                async with session_factory() as db:
+                    message = await dispatch_text(
+                        db,
+                        ChannelRegistry((adapter,)),
+                        TEST_SETTINGS,
+                        tenant_id=tenant_id,
+                        channel_account_id=account_id,
+                        conversation_id=conversation_id,
+                        text="Concurrent reply",
+                        idempotency_key="telegram-outbound:concurrent",
+                        author_type=MessageAuthorType.HUMAN,
+                    )
+                    return message.id
+
+            try:
+                return list(await asyncio.gather(send_once(), send_once()))
+            finally:
+                await engine.dispose()
+
+        concurrent_ids = asyncio.run(send_concurrently())
+        assert concurrent_ids[0] == concurrent_ids[1]
+        assert len(adapter.send_calls) == 2
     finally:
         close_channel_client(supervisor_client)
 

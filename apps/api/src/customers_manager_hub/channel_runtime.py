@@ -1,7 +1,8 @@
+import hashlib
 from dataclasses import dataclass
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import select, text as sql_text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -419,6 +420,32 @@ async def process_channel_event(
         await db.commit()
 
 
+def _outbound_lock_key(tenant_id: UUID, idempotency_key: str) -> int:
+    digest = hashlib.sha256(f"{tenant_id}:{idempotency_key}".encode()).digest()
+    value = int.from_bytes(digest[:8], "big", signed=False)
+    return value if value < 2**63 else value - 2**64
+
+
+def _outbound_message_matches(
+    message: Message,
+    *,
+    tenant_id: UUID,
+    channel_account_id: UUID,
+    conversation_id: UUID,
+    normalized_text: str,
+    author_type: MessageAuthorType,
+) -> bool:
+    return (
+        message.tenant_id == tenant_id
+        and message.conversation_id == conversation_id
+        and message.direction == MessageDirection.OUTBOUND.value
+        and message.author_type == author_type.value
+        and message.message_type == MessageType.TEXT.value
+        and message.text == normalized_text
+        and message.external_metadata.get("channel_account_id") == str(channel_account_id)
+    )
+
+
 async def dispatch_text(
     db: AsyncSession,
     registry: ChannelRegistry,
@@ -431,6 +458,14 @@ async def dispatch_text(
     idempotency_key: str,
     author_type: MessageAuthorType,
 ) -> Message:
+    normalized_text = text.strip()
+    if not normalized_text:
+        raise ChannelRuntimeError("channel_outbound_empty_text")
+
+    await db.execute(
+        sql_text("SELECT pg_advisory_xact_lock(:lock_key)"),
+        {"lock_key": _outbound_lock_key(tenant_id, idempotency_key)},
+    )
     existing = await db.scalar(
         select(Message).where(
             Message.tenant_id == tenant_id,
@@ -438,10 +473,13 @@ async def dispatch_text(
         )
     )
     if existing is not None:
-        if (
-            existing.conversation_id != conversation_id
-            or existing.direction != MessageDirection.OUTBOUND.value
-            or existing.message_type != MessageType.TEXT.value
+        if not _outbound_message_matches(
+            existing,
+            tenant_id=tenant_id,
+            channel_account_id=channel_account_id,
+            conversation_id=conversation_id,
+            normalized_text=normalized_text,
+            author_type=author_type,
         ):
             raise ChannelRuntimeError("channel_outbound_idempotency_conflict")
         return existing
@@ -479,7 +517,7 @@ async def dispatch_text(
     sent = await adapter.send_text(
         access_secret,
         external_thread_id=binding.external_thread_id,
-        text=text,
+        text=normalized_text,
     )
     identity = await db.scalar(
         select(ExternalIdentity).where(
@@ -496,7 +534,7 @@ async def dispatch_text(
         direction=MessageDirection.OUTBOUND.value,
         author_type=author_type.value,
         message_type=MessageType.TEXT.value,
-        text=text.strip(),
+        text=normalized_text,
         external_message_id=sent.external_message_id,
         idempotency_key=idempotency_key,
         external_metadata={
@@ -521,6 +559,15 @@ async def dispatch_text(
         )
         if raced is None:
             raise
+        if not _outbound_message_matches(
+            raced,
+            tenant_id=tenant_id,
+            channel_account_id=channel_account_id,
+            conversation_id=conversation_id,
+            normalized_text=normalized_text,
+            author_type=author_type,
+        ):
+            raise ChannelRuntimeError("channel_outbound_idempotency_conflict")
         return raced
     await db.refresh(message)
     return message

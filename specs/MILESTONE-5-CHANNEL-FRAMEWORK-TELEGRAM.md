@@ -117,6 +117,10 @@ Provide an authenticated test/operational endpoint for Owner/Admin/Supervisor/Ag
 - for Telegram, calls `sendMessage` with the bound chat ID;
 - persists the canonical outbound Message with Telegram's returned message ID and timestamp after successful delivery;
 - never exposes the bot token.
+- serializes concurrent requests that reuse the same tenant/idempotency key before calling the external provider;
+- returns an idempotency conflict when the same key is reused with a different outbound payload.
+
+Telegram does not expose an idempotency token for `sendMessage`. A process failure after Telegram accepts a message but before PostgreSQL commits can therefore still produce at-least-once delivery on a later retry. Durable outbound delivery/outbox reconciliation is deferred to the Agent/production-hardening lifecycle rather than falsely claiming exactly-once external delivery.
 
 This endpoint exists to prove outbound transport before Agent Runtime. Automated AI response orchestration is out of scope.
 
