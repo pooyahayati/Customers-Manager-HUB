@@ -7,7 +7,13 @@ from sqlalchemy import func, select
 
 from customers_manager_hub.config import Settings, get_settings
 from customers_manager_hub.database import create_database
-from customers_manager_hub.models import AuditEvent, PlatformUser, Tenant, TenantMembership, TenantRole
+from customers_manager_hub.models import (
+    AuditEvent,
+    PlatformUser,
+    Tenant,
+    TenantMembership,
+    TenantRole,
+)
 from customers_manager_hub.security import hash_password, normalize_email, normalize_slug
 
 
@@ -39,7 +45,9 @@ async def bootstrap_initial_owner(
             tenant_count = await db.scalar(select(func.count()).select_from(Tenant))
             user_count = await db.scalar(select(func.count()).select_from(PlatformUser))
             if (tenant_count or 0) != 0 or (user_count or 0) != 0:
-                raise BootstrapError("Initial bootstrap is allowed only on an empty identity database")
+                raise BootstrapError(
+                    "Initial bootstrap is allowed only on an empty identity database"
+                )
 
             tenant = Tenant(slug=normalized_slug, name=normalized_name)
             user = PlatformUser(email=normalized_email, password_hash=encoded_password)
