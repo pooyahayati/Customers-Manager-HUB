@@ -6,7 +6,7 @@ on:
       - main
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   web-quality:
@@ -31,9 +31,6 @@ jobs:
           pnpm --version
           node --version
 
-      - name: Resolve lockfile
-        run: pnpm install --lockfile-only
-
       - name: Verify frozen install
         run: pnpm install --frozen-lockfile
 
@@ -48,13 +45,3 @@ jobs:
 
       - name: Build
         run: pnpm build
-
-      - name: Commit lockfile if changed
-        run: |
-          git add pnpm-lock.yaml
-          if ! git diff --cached --quiet; then
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git commit -m "chore(web): refresh frontend lockfile"
-            git push origin HEAD:feat/web-runtime-skeleton
-          fi
