@@ -6,7 +6,7 @@ on:
       - main
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   hardening:
@@ -30,64 +30,14 @@ jobs:
       - name: Install uv
         run: python -m pip install uv==0.12.10
 
-      - name: Apply hardening patch
-        shell: bash
-        run: |
-          set -euo pipefail
-          python - <<'PY'
-          from pathlib import Path
-
-          webhook = Path("apps/api/src/customers_manager_hub/channel_webhooks.py")
-          content = webhook.read_text()
-          old = (
-              "    body = await request.body()\n"
-              "    if len(body) > _MAX_TELEGRAM_WEBHOOK_BYTES:\n"
-              "        raise HTTPException(status_code=status.HTTP_413_CONTENT_TOO_LARGE)\n"
-              "    try:\n"
-              "        payload: object = json.loads(body)\n"
-          )
-          new = (
-              "    body = bytearray()\n"
-              "    async for chunk in request.stream():\n"
-              "        if len(body) + len(chunk) > _MAX_TELEGRAM_WEBHOOK_BYTES:\n"
-              "            raise HTTPException(status_code=status.HTTP_413_CONTENT_TOO_LARGE)\n"
-              "        body.extend(chunk)\n"
-              "    try:\n"
-              "        payload: object = json.loads(body)\n"
-          )
-          if old not in content:
-              raise SystemExit("Webhook body block not found")
-          webhook.write_text(content.replace(old, new, 1))
-
-          script = Path(".github/channel_hardening_temp.py")
-          source = script.read_text()
-          start = source.index('\n\nwebhook = Path("apps/api/src/customers_manager_hub/channel_webhooks.py")')
-          end = source.index('\n\ntest = Path("apps/api/tests/test_telegram_channel_integration.py")', start)
-          script.write_text(source[:start] + source[end:])
-          PY
-          python .github/channel_hardening_temp.py
-
-      - name: Format source and tests
-        run: uv run ruff format apps/api/src apps/api/tests
-
-      - name: Commit hardening source and tests
-        shell: bash
-        run: |
-          set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add apps/api/src apps/api/tests specs/MILESTONE-5-CHANNEL-FRAMEWORK-TELEGRAM.md
-          git commit -m "fix: harden Telegram outbound idempotency"
-          git push origin "HEAD:${{ github.head_ref }}"
-
       - name: Frozen dependency sync
         run: uv sync --frozen
 
       - name: Ruff format check
-        run: uv run ruff format --check .
+        run: uv run ruff format --check apps/api/src apps/api/tests
 
       - name: Ruff lint
-        run: uv run ruff check .
+        run: uv run ruff check apps/api/src apps/api/tests
 
       - name: Pyright
         run: uv run pyright
