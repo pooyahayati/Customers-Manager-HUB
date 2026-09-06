@@ -126,12 +126,12 @@ def test_customer_history_is_tenant_scoped_and_message_retry_is_idempotent() -> 
         assert contact_a.status_code == 201
         contact_a_id = contact_a.json()["id"]
 
-        assert [item["id"] for item in client_a.get(
-            f"/api/v1/tenants/{tenant_a}/contacts"
-        ).json()] == [contact_a_id]
-        assert client_b.get(
-            f"/api/v1/tenants/{tenant_b}/contacts/{contact_a_id}"
-        ).status_code == 404
+        assert [
+            item["id"] for item in client_a.get(f"/api/v1/tenants/{tenant_a}/contacts").json()
+        ] == [contact_a_id]
+        assert (
+            client_b.get(f"/api/v1/tenants/{tenant_b}/contacts/{contact_a_id}").status_code == 404
+        )
 
         identity = client_a.post(
             f"/api/v1/tenants/{tenant_a}/contacts/{contact_a_id}/identities",
@@ -168,9 +168,12 @@ def test_customer_history_is_tenant_scoped_and_message_retry_is_idempotent() -> 
         conversation_a_id = conversation_a.json()["id"]
 
         assert create_conversation(client_b, tenant_b, contact_a_id).status_code == 404
-        assert client_b.get(
-            f"/api/v1/tenants/{tenant_b}/conversations/{conversation_a_id}"
-        ).status_code == 404
+        assert (
+            client_b.get(
+                f"/api/v1/tenants/{tenant_b}/conversations/{conversation_a_id}"
+            ).status_code
+            == 404
+        )
 
         other_identity = client_a.post(
             f"/api/v1/tenants/{tenant_a}/contacts/{second_contact.json()['id']}/identities",

@@ -282,7 +282,9 @@ async def load_message_by_idempotency_key(
     )
 
 
-def message_identity_matches(message: Message, payload: MessageCreate, conversation_id: UUID) -> bool:
+def message_identity_matches(
+    message: Message, payload: MessageCreate, conversation_id: UUID
+) -> bool:
     return (
         message.conversation_id == conversation_id
         and message.external_identity_id == payload.external_identity_id
@@ -315,7 +317,9 @@ async def load_attachments(
                 MessageAttachment.tenant_id == tenant_id,
                 MessageAttachment.message_id.in_(message_ids),
             )
-            .order_by(MessageAttachment.message_id, MessageAttachment.created_at, MessageAttachment.id)
+            .order_by(
+                MessageAttachment.message_id, MessageAttachment.created_at, MessageAttachment.id
+            )
         )
     ).all()
     for attachment in attachments:

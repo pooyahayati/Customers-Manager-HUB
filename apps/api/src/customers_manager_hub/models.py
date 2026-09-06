@@ -310,7 +310,9 @@ class Message(Base):
 class MessageAttachment(Base):
     __tablename__ = "message_attachments"
     __table_args__ = (
-        CheckConstraint("size_bytes IS NULL OR size_bytes >= 0", name="ck_message_attachments_size"),
+        CheckConstraint(
+            "size_bytes IS NULL OR size_bytes >= 0", name="ck_message_attachments_size"
+        ),
         Index("ix_message_attachments_message_id", "message_id"),
     )
 

@@ -68,7 +68,9 @@ async def get_tenant_context(
 TenantContextDependency = Annotated[TenantContext, Depends(get_tenant_context)]
 
 
-def require_tenant_role(context: TenantContext, allowed_roles: Collection[TenantRole]) -> TenantRole:
+def require_tenant_role(
+    context: TenantContext, allowed_roles: Collection[TenantRole]
+) -> TenantRole:
     role = TenantRole(context.membership.role)
     if role not in allowed_roles:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient permission")
