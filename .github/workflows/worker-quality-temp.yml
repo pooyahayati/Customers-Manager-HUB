@@ -11,7 +11,7 @@ permissions:
 jobs:
   worker-quality:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
 
     steps:
       - name: Checkout branch
@@ -40,24 +40,35 @@ jobs:
       - name: Pytest
         run: uv run pytest
 
-      - name: Worker process smoke
+      - name: Validate Compose
+        run: docker compose -f compose.yaml config --quiet
+
+      - name: Start worker stack
+        run: docker compose -f compose.yaml up -d --build postgres redis worker
+
+      - name: Verify worker runtime
         run: |
           set -euo pipefail
-          uv run python -m customers_manager_hub.worker >worker.log 2>&1 &
-          pid=$!
-          for _ in $(seq 1 20); do
-            if grep -q 'worker started' worker.log; then
+          for _ in $(seq 1 40); do
+            state="$(docker inspect -f '{{.State.Status}}' "$(docker compose ps -q worker)")"
+            if [ "$state" = "running" ] && docker compose logs worker | grep -q 'worker started'; then
               break
             fi
-            if ! kill -0 "$pid" 2>/dev/null; then
-              cat worker.log
-              exit 1
-            fi
-            sleep 0.25
+            docker compose logs worker
+            sleep 0.5
           done
-          grep -q 'worker started' worker.log
-          kill -TERM "$pid"
-          wait "$pid"
-          grep -q 'worker shutdown requested' worker.log
-          grep -q 'worker stopped' worker.log
-          cat worker.log
+          test "$(docker inspect -f '{{.State.Status}}' "$(docker compose ps -q worker)")" = "running"
+          docker compose logs worker | grep -q 'worker started'
+          test "$(docker inspect -f '{{.Config.User}}' "$(docker compose ps -q worker)")" = "app"
+
+      - name: Verify graceful shutdown
+        run: |
+          set -euo pipefail
+          docker compose stop -t 10 worker
+          docker compose logs worker
+          docker compose logs worker | grep -q 'worker shutdown requested'
+          docker compose logs worker | grep -q 'worker stopped'
+
+      - name: Cleanup
+        if: always()
+        run: docker compose -f compose.yaml down -v --remove-orphans
