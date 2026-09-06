@@ -54,5 +54,7 @@ If an accepted decision materially changes, create a new ADR that supersedes the
 - ADR-007 — Separate Admin Console and Customer Webchat
 - ADR-008 — Server-Side Admin Sessions and Explicit Tenant Context
 - ADR-009 — Contact Identity and Message Idempotency Boundaries
+- ADR-010 — Redis Streams for Channel Job Queue
+- ADR-011 — Encrypted Channel Credentials
 
 Additional ADRs should be created only when a material implementation decision becomes imminent.
