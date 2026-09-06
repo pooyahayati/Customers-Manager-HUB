@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from typing import Literal
+from typing import Literal, Protocol, cast
 
 import psycopg
 from fastapi import APIRouter, Request, status
@@ -15,6 +15,12 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["system"])
 
 DependencyStatus = Literal["ok", "unavailable"]
+
+
+class RedisReadinessClient(Protocol):
+    async def ping(self) -> bool: ...
+
+    async def aclose(self) -> None: ...
 
 
 class HealthResponse(BaseModel):
@@ -52,14 +58,19 @@ async def check_postgres(settings: Settings) -> bool:
         return False
 
 
-async def check_redis(settings: Settings) -> bool:
-    """Check Redis reachability without retaining state."""
-    client = Redis.from_url(
+def create_redis_readiness_client(settings: Settings) -> RedisReadinessClient:
+    client = Redis.from_url(  # pyright: ignore[reportUnknownMemberType]
         settings.redis_url,
         socket_connect_timeout=settings.dependency_timeout_seconds,
         socket_timeout=settings.dependency_timeout_seconds,
         decode_responses=True,
     )
+    return cast(RedisReadinessClient, client)
+
+
+async def check_redis(settings: Settings) -> bool:
+    """Check Redis reachability without retaining state."""
+    client = create_redis_readiness_client(settings)
     try:
         return bool(await client.ping())
     except RedisError, OSError, TimeoutError:
