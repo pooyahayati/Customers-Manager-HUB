@@ -1,5 +1,5 @@
 from collections.abc import AsyncIterator
-from typing import TypeAlias, cast
+from typing import cast
 
 from fastapi import Request
 from sqlalchemy.ext.asyncio import (
@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import (
 
 from customers_manager_hub.config import Settings
 
-AsyncSessionFactory: TypeAlias = async_sessionmaker[AsyncSession]
+type AsyncSessionFactory = async_sessionmaker[AsyncSession]
 
 
 def create_database(settings: Settings) -> tuple[AsyncEngine, AsyncSessionFactory]:
