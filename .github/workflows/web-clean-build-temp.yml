@@ -1,0 +1,50 @@
+name: Web Clean Build Temporary
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  web-clean-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.head_ref }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+
+      - name: Activate pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@12.3.4 --activate
+
+      - name: Verify frozen install
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify peers
+        run: pnpm peers check
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Build
+        run: pnpm build
+
+      - name: Verify clean working tree
+        run: |
+          git status --porcelain
+          test -z "$(git status --porcelain)"
