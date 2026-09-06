@@ -33,10 +33,26 @@ jobs:
       - name: Refresh lockfile
         run: uv lock
 
+      - name: Apply known lint fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("apps/api/src/customers_manager_hub/channels.py")
+          content = path.read_text()
+          content = content.replace(
+              '    def require_change(self) -> "ChannelUpdate":',
+              '    def require_change(self) -> ChannelUpdate:',
+          )
+          path.write_text(content)
+          PY
+
       - name: Apply canonical Ruff formatting
         run: uv run ruff format .
 
-      - name: Commit generated lock and formatting
+      - name: Commit generated lock formatting and lint fix
         shell: bash
         run: |
           set -euo pipefail
@@ -46,7 +62,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add uv.lock apps/api pyproject.toml
-          git commit -m "chore: refresh Telegram milestone lock and formatting"
+          git commit -m "chore: refresh Telegram milestone validation state"
           git push origin "HEAD:${{ github.head_ref }}"
 
       - name: Frozen dependency sync
