@@ -6,7 +6,7 @@ on:
       - feat/tenant-auth-rbac-foundation
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   persistence:
@@ -16,6 +16,8 @@ jobs:
     steps:
       - name: Checkout branch
         uses: actions/checkout@v7
+        with:
+          ref: feat/tenant-auth-rbac-foundation
 
       - name: Setup Python
         uses: actions/setup-python@v6
@@ -27,6 +29,18 @@ jobs:
 
       - name: Sync dependencies
         run: uv sync --frozen
+
+      - name: Apply required formatting
+        run: |
+          uv run ruff format apps/api/src/customers_manager_hub/models.py migrations/versions/0001_tenant_auth_rbac.py
+          if ! git diff --quiet; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add apps/api/src/customers_manager_hub/models.py migrations/versions/0001_tenant_auth_rbac.py
+            git commit -m "style(auth): apply ruff formatting"
+            git pull --rebase origin feat/tenant-auth-rbac-foundation
+            git push origin HEAD:feat/tenant-auth-rbac-foundation
+          fi
 
       - name: Python quality
         run: |
@@ -58,7 +72,7 @@ jobs:
           uv run alembic upgrade head
           uv run alembic downgrade base
           uv run alembic upgrade head
-          python - <<'PY'
+          uv run python - <<'PY'
           import psycopg
           required = {"platform_users", "tenants", "tenant_memberships", "auth_sessions", "audit_events", "alembic_version"}
           with psycopg.connect("postgresql://cmh:change-me@127.0.0.1:5432/customers_manager_hub") as conn:
