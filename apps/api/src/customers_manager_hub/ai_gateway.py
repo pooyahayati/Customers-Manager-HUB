@@ -93,8 +93,11 @@ class TranscriptionResult:
 
 
 class AIProviderResult(Protocol):
-    usage: AIUsage
-    provider_request_id: str | None
+    @property
+    def usage(self) -> AIUsage: ...
+
+    @property
+    def provider_request_id(self) -> str | None: ...
 
 
 class AIProviderAdapter(Protocol):
