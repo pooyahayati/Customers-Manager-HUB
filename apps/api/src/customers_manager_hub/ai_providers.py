@@ -1,6 +1,6 @@
 import base64
 import json
-from typing import TypeVar, cast
+from typing import cast
 from urllib.parse import quote
 
 import httpx2
@@ -24,7 +24,6 @@ OPENAI_BASE_URL = "https://api.openai.com/v1"
 GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
 GEMINI_INLINE_AUDIO_LIMIT_BYTES = 20 * 1024 * 1024
 LIVE_AI_PROVIDER_KEYS = frozenset({"openai", "gemini"})
-ResponseModelT = TypeVar("ResponseModelT", bound=BaseModel)
 
 
 class _OpenAIContent(BaseModel):
@@ -180,7 +179,7 @@ def _is_retryable_status(status_code: int) -> bool:
     return status_code in {408, 409, 425, 429} or status_code >= 500
 
 
-def _validate_provider_response(
+def _validate_provider_response[ResponseModelT: BaseModel](
     model: type[ResponseModelT],
     payload: object,
     provider: str,
