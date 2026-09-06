@@ -1,0 +1,86 @@
+# Environment / secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+secrets/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+*.egg-info/
+dist/
+build/
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+coverage/
+.npm/
+.pnpm-store/
+.yarn/
+*.tsbuildinfo
+
+# IDE / editors
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs / runtime
+*.log
+logs/
+*.pid
+*.pid.lock
+
+# Local databases / state
+*.sqlite
+*.sqlite3
+.local/
+data/
+
+# Docker local overrides
+docker-compose.override.yml
+compose.override.yml
+
+# MinIO / generated object data
+minio-data/
+
+# Test / temp artifacts
+tmp/
+temp/
+.pyre/
+.cache/
+
+# Generated exports / uploads
+uploads/
+exports/
+
+# Terraform / infra state (future-proofing)
+.terraform/
+*.tfstate
+*.tfstate.*
+
+# Local Codex/agent scratch files
+.codex/
+.agent/
