@@ -170,7 +170,9 @@ async def _resolve_or_create_run(
     event_id: UUID,
 ) -> UUID | None:
     async with session_factory() as db:
-        event = await db.scalar(select(ChannelInboundEvent).where(ChannelInboundEvent.id == event_id))
+        event = await db.scalar(
+            select(ChannelInboundEvent).where(ChannelInboundEvent.id == event_id)
+        )
         if event is None:
             raise AgentRuntimeError("agent_channel_event_missing", retryable=False)
         if event.message_id is None:

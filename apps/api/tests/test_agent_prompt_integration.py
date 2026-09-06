@@ -2,6 +2,7 @@ import asyncio
 import base64
 import os
 from collections.abc import Iterator
+from datetime import UTC, datetime
 from uuid import UUID
 
 import pytest
@@ -42,7 +43,11 @@ from customers_manager_hub.channel_models import (
     ChannelInboundEvent,
     ChannelType,
 )
-from customers_manager_hub.channel_queue import CHANNEL_JOB_STREAM, ChannelJobQueue, create_channel_redis
+from customers_manager_hub.channel_queue import (
+    CHANNEL_JOB_STREAM,
+    ChannelJobQueue,
+    create_channel_redis,
+)
 from customers_manager_hub.channel_security import decrypt_channel_secret
 from customers_manager_hub.config import Settings
 from customers_manager_hub.database import create_database
@@ -142,7 +147,7 @@ class FakeTelegramAdapter:
             raise ChannelProviderError("telegram_test_retryable", retryable=True)
         return ChannelSendResult(
             external_message_id=str(1000 + self.send_attempts),
-            occurred_at=__import__("datetime").datetime.now(__import__("datetime").UTC),
+            occurred_at=datetime.now(UTC),
         )
 
 
@@ -401,9 +406,7 @@ def test_prompt_lifecycle_rbac_and_tenant_isolation() -> None:
             (1, "draft")
         ]
 
-        published_v1 = client.post(
-            f"/api/v1/tenants/{tenant_a}/prompts/{prompt_id}/publish"
-        )
+        published_v1 = client.post(f"/api/v1/tenants/{tenant_a}/prompts/{prompt_id}/publish")
         assert published_v1.status_code == 200
         assert [(item["version"], item["status"]) for item in published_v1.json()["versions"]] == [
             (1, "published")
@@ -419,9 +422,7 @@ def test_prompt_lifecycle_rbac_and_tenant_isolation() -> None:
             (2, "draft"),
         ]
 
-        published_v2 = client.post(
-            f"/api/v1/tenants/{tenant_a}/prompts/{prompt_id}/publish"
-        )
+        published_v2 = client.post(f"/api/v1/tenants/{tenant_a}/prompts/{prompt_id}/publish")
         assert published_v2.status_code == 200
         assert [(item["version"], item["status"]) for item in published_v2.json()["versions"]] == [
             (1, "archived"),
@@ -526,7 +527,9 @@ async def process_one_job(
     queue = ChannelJobQueue(redis_client, claim_idle_ms=0)
     try:
         await queue.ensure_group()
-        jobs = await queue.reclaim(consumer) if reclaim else await queue.consume(consumer, block_ms=1)
+        jobs = (
+            await queue.reclaim(consumer) if reclaim else await queue.consume(consumer, block_ms=1)
+        )
         assert len(jobs) == 1
         await _process_job(
             jobs[0],
@@ -749,14 +752,10 @@ def test_retryable_ai_failure_is_reclaimed_and_terminal_output_failure_is_acked(
         assert adapter.send_attempts == 1
         assert SYNC_REDIS.xlen(CHANNEL_JOB_STREAM) == 0
         with Session(SYNC_ENGINE) as db:
-            failed_run = db.scalar(
-                select(AgentRun).where(AgentRun.inbound_message_id == Message.id)
-            )
             runs = list(db.scalars(select(AgentRun)).all())
             assert len(runs) == 1
             assert runs[0].status == AgentRunStatus.FAILED.value
             assert runs[0].error_code == "agent_empty_output"
             assert runs[0].generated_text is None
-            del failed_run
     finally:
         close_client(client)

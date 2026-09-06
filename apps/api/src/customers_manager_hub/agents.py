@@ -256,7 +256,9 @@ async def load_agent(db: AsyncSession, tenant_id: UUID, agent_id: UUID) -> Agent
     return agent
 
 
-async def load_channel_account(db: AsyncSession, tenant_id: UUID, channel_account_id: UUID) -> ChannelAccount:
+async def load_channel_account(
+    db: AsyncSession, tenant_id: UUID, channel_account_id: UUID
+) -> ChannelAccount:
     account = await db.scalar(
         select(ChannelAccount).where(
             ChannelAccount.id == channel_account_id,
@@ -493,7 +495,9 @@ async def get_channel_assignment(
         )
     )
     if assignment is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent assignment not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Agent assignment not found"
+        )
     return assignment_response(assignment)
 
 
@@ -556,7 +560,9 @@ async def delete_channel_assignment(
         )
     )
     if assignment is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent assignment not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Agent assignment not found"
+        )
     assignment_id = assignment.id
     agent_id = assignment.agent_id
     await db.delete(assignment)

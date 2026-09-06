@@ -227,7 +227,9 @@ class AgentRun(Base):
         ForeignKey("messages.id", ondelete="SET NULL"),
         nullable=True,
     )
-    status: Mapped[str] = mapped_column(String(32), nullable=False, default=AgentRunStatus.PENDING.value)
+    status: Mapped[str] = mapped_column(
+        String(32), nullable=False, default=AgentRunStatus.PENDING.value
+    )
     generated_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     error_code: Mapped[str | None] = mapped_column(String(100), nullable=True)
     lease_token: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
