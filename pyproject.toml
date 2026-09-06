@@ -9,10 +9,13 @@ description = "Multi-tenant omnichannel AI customer interaction platform"
 readme = "README.md"
 requires-python = ">=3.14,<3.15"
 dependencies = [
+    "alembic==1.19.2",
     "fastapi==0.141.1",
+    "pwdlib[argon2]==0.3.1",
     "pydantic-settings==2.15.0",
     "psycopg[binary]==3.3.5",
     "redis==8.1.0",
+    "sqlalchemy==2.0.52",
     "uvicorn==0.52.1",
 ]
 
