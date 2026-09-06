@@ -1,8 +1,12 @@
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
+import httpx2
 from fastapi import FastAPI
 
+from customers_manager_hub.ai_gateway import AIGateway
+from customers_manager_hub.ai_profiles import router as ai_profiles_router
+from customers_manager_hub.ai_providers import build_live_provider_registry
 from customers_manager_hub.auth import router as auth_router
 from customers_manager_hub.config import Settings, get_settings
 from customers_manager_hub.contacts import router as contacts_router
@@ -20,9 +24,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     engine, session_factory = create_database(resolved_settings)
 
     @asynccontextmanager
-    async def lifespan(_: FastAPI) -> AsyncGenerator[None]:
+    async def lifespan(application: FastAPI) -> AsyncGenerator[None]:
         try:
-            yield
+            async with httpx2.AsyncClient() as ai_http_client:
+                ai_provider_registry = build_live_provider_registry(
+                    resolved_settings,
+                    ai_http_client,
+                )
+                application.state.ai_gateway = AIGateway(ai_provider_registry, session_factory)
+                yield
         finally:
             await engine.dispose()
 
@@ -36,6 +46,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.include_router(health_router)
     application.include_router(auth_router)
     application.include_router(tenants_router)
+    application.include_router(ai_profiles_router)
     application.include_router(contacts_router)
     application.include_router(conversations_router)
     return application
