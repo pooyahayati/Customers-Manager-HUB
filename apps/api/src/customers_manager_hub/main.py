@@ -22,16 +22,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     resolved_settings = settings or get_settings()
     configure_logging(resolved_settings.app_log_level)
     engine, session_factory = create_database(resolved_settings)
-    ai_http_client = httpx2.AsyncClient()
-    ai_provider_registry = build_live_provider_registry(resolved_settings, ai_http_client)
-    ai_gateway = AIGateway(ai_provider_registry, session_factory)
 
     @asynccontextmanager
-    async def lifespan(_: FastAPI) -> AsyncGenerator[None]:
+    async def lifespan(application: FastAPI) -> AsyncGenerator[None]:
         try:
-            yield
+            async with httpx2.AsyncClient() as ai_http_client:
+                ai_provider_registry = build_live_provider_registry(
+                    resolved_settings,
+                    ai_http_client,
+                )
+                application.state.ai_gateway = AIGateway(ai_provider_registry, session_factory)
+                yield
         finally:
-            await ai_http_client.aclose()
             await engine.dispose()
 
     application = FastAPI(
@@ -41,7 +43,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     application.state.settings = resolved_settings
     application.state.db_session_factory = session_factory
-    application.state.ai_gateway = ai_gateway
     application.include_router(health_router)
     application.include_router(auth_router)
     application.include_router(tenants_router)
