@@ -2,7 +2,8 @@ import hashlib
 from dataclasses import dataclass
 from uuid import UUID
 
-from sqlalchemy import select, text as sql_text
+from sqlalchemy import select
+from sqlalchemy import text as sql_text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -549,7 +550,7 @@ async def dispatch_text(
         conversation.last_message_at = sent.occurred_at
     try:
         await db.commit()
-    except IntegrityError:
+    except IntegrityError as exc:
         await db.rollback()
         raced = await db.scalar(
             select(Message).where(
@@ -567,7 +568,7 @@ async def dispatch_text(
             normalized_text=normalized_text,
             author_type=author_type,
         ):
-            raise ChannelRuntimeError("channel_outbound_idempotency_conflict")
+            raise ChannelRuntimeError("channel_outbound_idempotency_conflict") from exc
         return raced
     await db.refresh(message)
     return message
