@@ -1,3 +1,4 @@
+from collections.abc import Collection
 from dataclasses import dataclass
 from typing import Annotated
 from uuid import UUID
@@ -67,6 +68,13 @@ async def get_tenant_context(
 TenantContextDependency = Annotated[TenantContext, Depends(get_tenant_context)]
 
 
+def require_tenant_role(context: TenantContext, allowed_roles: Collection[TenantRole]) -> TenantRole:
+    role = TenantRole(context.membership.role)
+    if role not in allowed_roles:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient permission")
+    return role
+
+
 def tenant_response(context: TenantContext) -> TenantResponse:
     return TenantResponse(
         id=context.tenant.id,
@@ -111,9 +119,7 @@ async def update_tenant(
     context: TenantContextDependency,
     db: DbSession,
 ) -> TenantResponse:
-    role = TenantRole(context.membership.role)
-    if role not in {TenantRole.OWNER, TenantRole.ADMIN}:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient permission")
+    require_tenant_role(context, {TenantRole.OWNER, TenantRole.ADMIN})
 
     if context.tenant.name != payload.name:
         context.tenant.name = payload.name
