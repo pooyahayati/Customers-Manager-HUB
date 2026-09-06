@@ -317,9 +317,7 @@ async def load_attachments(
     tenant_id: UUID,
     message_ids: list[UUID],
 ) -> dict[UUID, list[MessageAttachment]]:
-    grouped: dict[UUID, list[MessageAttachment]] = {
-        message_id: [] for message_id in message_ids
-    }
+    grouped: dict[UUID, list[MessageAttachment]] = {message_id: [] for message_id in message_ids}
     if not message_ids:
         return grouped
     attachments = (
