@@ -11,6 +11,7 @@ from customers_manager_hub.config import Settings
 from customers_manager_hub.database import get_db_session
 from customers_manager_hub.models import AuthSession, PlatformUser
 from customers_manager_hub.security import (
+    DUMMY_PASSWORD_HASH,
     generate_session_token,
     hash_session_token,
     normalize_email,
@@ -93,7 +94,9 @@ async def login(
             PlatformUser.is_active.is_(True),
         )
     )
-    if user is None or not verify_password(payload.password, user.password_hash):
+    encoded_hash = user.password_hash if user is not None else DUMMY_PASSWORD_HASH
+    password_is_valid = verify_password(payload.password, encoded_hash)
+    if user is None or not password_is_valid:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password",
