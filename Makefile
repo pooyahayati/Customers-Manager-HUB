@@ -19,7 +19,7 @@ infra-check:
 up: infra-check
 	$(COMPOSE) up -d --build
 
- down:
+down:
 	$(COMPOSE) down
 
 restart: down up
