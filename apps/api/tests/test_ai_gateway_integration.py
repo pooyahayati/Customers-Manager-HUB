@@ -24,7 +24,13 @@ from customers_manager_hub.ai_models import (
 from customers_manager_hub.config import Settings
 from customers_manager_hub.database import create_database
 from customers_manager_hub.main import create_app
-from customers_manager_hub.models import AuditEvent, PlatformUser, Tenant, TenantMembership, TenantRole
+from customers_manager_hub.models import (
+    AuditEvent,
+    PlatformUser,
+    Tenant,
+    TenantMembership,
+    TenantRole,
+)
 from customers_manager_hub.security import hash_password
 
 RUN_DB_INTEGRATION = os.environ.get("RUN_DB_INTEGRATION") == "1"
@@ -188,9 +194,7 @@ def test_task_profile_api_covers_required_tasks_rbac_and_tenant_isolation() -> N
 
     with TestClient(create_app(TEST_SETTINGS)) as viewer_client:
         login(viewer_client, "viewer-a@example.com", "viewer password tenant a")
-        assert (
-            viewer_client.get(f"/api/v1/tenants/{tenant_a}/ai/task-profiles").status_code == 200
-        )
+        assert viewer_client.get(f"/api/v1/tenants/{tenant_a}/ai/task-profiles").status_code == 200
         forbidden = viewer_client.put(
             f"/api/v1/tenants/{tenant_a}/ai/task-profiles/customer_response",
             json={"routes": [{"provider": "openai", "model_id": "forbidden-model"}]},

@@ -42,9 +42,7 @@ def test_openai_structured_generation_contract_and_usage() -> None:
                 "output": [
                     {
                         "type": "message",
-                        "content": [
-                            {"type": "output_text", "text": '{"intent":"sales"}'}
-                        ],
+                        "content": [{"type": "output_text", "text": '{"intent":"sales"}'}],
                     }
                 ],
                 "usage": {"input_tokens": 7, "output_tokens": 3, "total_tokens": 10},
@@ -129,7 +127,7 @@ def test_openai_embedding_and_transcription_contracts() -> None:
                 },
             )
         assert request.url.path == "/v1/audio/transcriptions"
-        assert b'test-audio' in request.content
+        assert b"test-audio" in request.content
         return httpx2.Response(
             200,
             request=request,

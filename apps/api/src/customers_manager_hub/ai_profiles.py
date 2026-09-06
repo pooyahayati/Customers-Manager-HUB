@@ -142,7 +142,9 @@ async def load_profile(
         )
     )
     if profile is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="AI task profile not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="AI task profile not found"
+        )
     return profile
 
 
