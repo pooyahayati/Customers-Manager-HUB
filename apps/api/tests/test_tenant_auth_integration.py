@@ -2,10 +2,12 @@ import asyncio
 import os
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
+from typing import cast
 from uuid import UUID
 
 import pytest
 from fastapi.testclient import TestClient
+from httpx import Response
 from sqlalchemy import create_engine, select, text
 from sqlalchemy.orm import Session
 
@@ -35,6 +37,32 @@ pytestmark = pytest.mark.skipif(
     not RUN_DB_INTEGRATION,
     reason="PostgreSQL integration tests require RUN_DB_INTEGRATION=1",
 )
+
+
+def client_get(client: TestClient, path: str) -> Response:
+    return cast(
+        Response,
+        client.get(path),  # pyright: ignore[reportUnknownMemberType]
+    )
+
+
+def client_post(
+    client: TestClient,
+    path: str,
+    *,
+    json: dict[str, str] | None = None,
+) -> Response:
+    return cast(
+        Response,
+        client.post(path, json=json),  # pyright: ignore[reportUnknownMemberType]
+    )
+
+
+def client_patch(client: TestClient, path: str, *, json: dict[str, str]) -> Response:
+    return cast(
+        Response,
+        client.patch(path, json=json),  # pyright: ignore[reportUnknownMemberType]
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -117,14 +145,16 @@ def test_login_tenant_isolation_rbac_audit_and_logout() -> None:
     viewer_id = create_viewer(tenant_id)
 
     with TestClient(create_app(TEST_SETTINGS)) as owner_client:
-        invalid = owner_client.post(
+        invalid = client_post(
+            owner_client,
             "/api/v1/auth/login",
             json={"email": "owner@example.com", "password": "wrong password"},
         )
         assert invalid.status_code == 401
         assert invalid.json()["detail"] == "Invalid email or password"
 
-        login = owner_client.post(
+        login = client_post(
+            owner_client,
             "/api/v1/auth/login",
             json={
                 "email": " OWNER@example.com ",
@@ -136,7 +166,7 @@ def test_login_tenant_isolation_rbac_audit_and_logout() -> None:
         assert "httponly" in set_cookie
         assert "samesite=strict" in set_cookie
 
-        raw_token = owner_client.cookies.get(SESSION_COOKIE_NAME)
+        raw_token = login.cookies.get(SESSION_COOKIE_NAME)
         assert raw_token is not None
         with Session(SYNC_ENGINE) as db:
             stored_session = db.scalar(
@@ -146,22 +176,23 @@ def test_login_tenant_isolation_rbac_audit_and_logout() -> None:
             assert stored_session.token_hash != raw_token
             assert stored_session.user_id == owner_id
 
-        me = owner_client.get("/api/v1/auth/me")
+        me = client_get(owner_client, "/api/v1/auth/me")
         assert me.status_code == 200
         assert me.json()["email"] == "owner@example.com"
 
-        tenants = owner_client.get("/api/v1/tenants")
+        tenants = client_get(owner_client, "/api/v1/tenants")
         assert tenants.status_code == 200
         assert [item["id"] for item in tenants.json()] == [str(tenant_id)]
 
-        own_tenant = owner_client.get(f"/api/v1/tenants/{tenant_id}")
+        own_tenant = client_get(owner_client, f"/api/v1/tenants/{tenant_id}")
         assert own_tenant.status_code == 200
         assert own_tenant.json()["role"] == "owner"
 
-        cross_tenant = owner_client.get(f"/api/v1/tenants/{other_tenant_id}")
+        cross_tenant = client_get(owner_client, f"/api/v1/tenants/{other_tenant_id}")
         assert cross_tenant.status_code == 404
 
-        updated = owner_client.patch(
+        updated = client_patch(
+            owner_client,
             f"/api/v1/tenants/{tenant_id}",
             json={"name": "Acme Store Updated"},
         )
@@ -176,13 +207,15 @@ def test_login_tenant_isolation_rbac_audit_and_logout() -> None:
             assert audit.details == {"changed_fields": ["name"]}
 
         with TestClient(create_app(TEST_SETTINGS)) as viewer_client:
-            viewer_login = viewer_client.post(
+            viewer_login = client_post(
+                viewer_client,
                 "/api/v1/auth/login",
                 json={"email": "viewer@example.com", "password": "viewer password 1234"},
             )
             assert viewer_login.status_code == 200
 
-            forbidden = viewer_client.patch(
+            forbidden = client_patch(
+                viewer_client,
                 f"/api/v1/tenants/{tenant_id}",
                 json={"name": "Viewer Must Not Change This"},
             )
@@ -199,12 +232,12 @@ def test_login_tenant_isolation_rbac_audit_and_logout() -> None:
                 membership.is_active = False
                 db.commit()
 
-            inactive_membership = viewer_client.get(f"/api/v1/tenants/{tenant_id}")
+            inactive_membership = client_get(viewer_client, f"/api/v1/tenants/{tenant_id}")
             assert inactive_membership.status_code == 404
 
-        logout = owner_client.post("/api/v1/auth/logout")
+        logout = client_post(owner_client, "/api/v1/auth/logout")
         assert logout.status_code == 204
-        assert owner_client.get("/api/v1/auth/me").status_code == 401
+        assert client_get(owner_client, "/api/v1/auth/me").status_code == 401
 
         with Session(SYNC_ENGINE) as db:
             revoked_session = db.scalar(
@@ -218,7 +251,8 @@ def test_expired_session_is_rejected() -> None:
     bootstrap_owner()
 
     with TestClient(create_app(TEST_SETTINGS)) as client:
-        login = client.post(
+        login = client_post(
+            client,
             "/api/v1/auth/login",
             json={
                 "email": "owner@example.com",
@@ -226,7 +260,7 @@ def test_expired_session_is_rejected() -> None:
             },
         )
         assert login.status_code == 200
-        raw_token = client.cookies.get(SESSION_COOKIE_NAME)
+        raw_token = login.cookies.get(SESSION_COOKIE_NAME)
         assert raw_token is not None
 
         with Session(SYNC_ENGINE) as db:
@@ -237,4 +271,4 @@ def test_expired_session_is_rejected() -> None:
             auth_session.expires_at = datetime.now(UTC) - timedelta(seconds=1)
             db.commit()
 
-        assert client.get("/api/v1/auth/me").status_code == 401
+        assert client_get(client, "/api/v1/auth/me").status_code == 401
