@@ -1,6 +1,6 @@
 import json
 from datetime import UTC, datetime
-from typing import Annotated, Self
+from typing import Annotated, Self, cast
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
@@ -46,12 +46,15 @@ _SENSITIVE_METADATA_KEYS = {
 def validate_safe_metadata(value: dict[str, object]) -> dict[str, object]:
     def visit(node: object) -> None:
         if isinstance(node, dict):
-            for key, child in node.items():
-                if key.strip().casefold() in _SENSITIVE_METADATA_KEYS:
-                    raise ValueError(f"Sensitive metadata key is not allowed: {key}")
+            mapping = cast(dict[object, object], node)
+            for raw_key, child in mapping.items():
+                if not isinstance(raw_key, str):
+                    raise ValueError("Metadata keys must be strings")
+                if raw_key.strip().casefold() in _SENSITIVE_METADATA_KEYS:
+                    raise ValueError(f"Sensitive metadata key is not allowed: {raw_key}")
                 visit(child)
         elif isinstance(node, list):
-            for child in node:
+            for child in cast(list[object], node):
                 visit(child)
 
     visit(value)
@@ -115,6 +118,10 @@ class MessageAttachmentCreate(BaseModel):
         return validate_safe_metadata(value)
 
 
+def empty_attachment_payloads() -> list[MessageAttachmentCreate]:
+    return []
+
+
 class MessageCreate(BaseModel):
     external_identity_id: UUID | None = None
     direction: MessageDirection
@@ -125,7 +132,10 @@ class MessageCreate(BaseModel):
     idempotency_key: str | None = Field(default=None, max_length=255)
     metadata: dict[str, object] = Field(default_factory=dict)
     occurred_at: datetime | None = None
-    attachments: list[MessageAttachmentCreate] = Field(default_factory=list, max_length=16)
+    attachments: list[MessageAttachmentCreate] = Field(
+        default_factory=empty_attachment_payloads,
+        max_length=16,
+    )
 
     @field_validator("external_message_id", "idempotency_key")
     @classmethod
@@ -307,7 +317,9 @@ async def load_attachments(
     tenant_id: UUID,
     message_ids: list[UUID],
 ) -> dict[UUID, list[MessageAttachment]]:
-    grouped = {message_id: [] for message_id in message_ids}
+    grouped: dict[UUID, list[MessageAttachment]] = {
+        message_id: [] for message_id in message_ids
+    }
     if not message_ids:
         return grouped
     attachments = (
