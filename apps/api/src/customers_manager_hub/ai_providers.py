@@ -33,11 +33,19 @@ class _OpenAIContent(BaseModel):
     text: str | None = None
 
 
+def _empty_openai_contents() -> list[_OpenAIContent]:
+    return []
+
+
 class _OpenAIOutputItem(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     type: str
-    content: list[_OpenAIContent] = Field(default_factory=list)
+    content: list[_OpenAIContent] = Field(default_factory=_empty_openai_contents)
+
+
+def _empty_openai_output() -> list[_OpenAIOutputItem]:
+    return []
 
 
 class _OpenAIUsage(BaseModel):
@@ -52,7 +60,7 @@ class _OpenAIResponse(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     id: str | None = None
-    output: list[_OpenAIOutputItem] = Field(default_factory=list)
+    output: list[_OpenAIOutputItem] = Field(default_factory=_empty_openai_output)
     usage: _OpenAIUsage | None = None
 
 
@@ -83,16 +91,24 @@ class _GeminiPart(BaseModel):
     text: str | None = None
 
 
+def _empty_gemini_parts() -> list[_GeminiPart]:
+    return []
+
+
 class _GeminiContent(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
-    parts: list[_GeminiPart] = Field(default_factory=list)
+    parts: list[_GeminiPart] = Field(default_factory=_empty_gemini_parts)
 
 
 class _GeminiCandidate(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     content: _GeminiContent | None = None
+
+
+def _empty_gemini_candidates() -> list[_GeminiCandidate]:
+    return []
 
 
 class _GeminiUsage(BaseModel):
@@ -106,7 +122,7 @@ class _GeminiUsage(BaseModel):
 class _GeminiResponse(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
-    candidates: list[_GeminiCandidate] = Field(default_factory=list)
+    candidates: list[_GeminiCandidate] = Field(default_factory=_empty_gemini_candidates)
     usage_metadata: _GeminiUsage | None = Field(default=None, alias="usageMetadata")
 
 
