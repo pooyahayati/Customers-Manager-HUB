@@ -4,7 +4,8 @@ from contextlib import asynccontextmanager
 import httpx2
 from fastapi import FastAPI
 
-from customers_manager_hub.agents import prompt_router, router as agents_router
+from customers_manager_hub.agents import prompt_router
+from customers_manager_hub.agents import router as agents_router
 from customers_manager_hub.ai_gateway import AIGateway
 from customers_manager_hub.ai_profiles import router as ai_profiles_router
 from customers_manager_hub.ai_providers import build_live_provider_registry
