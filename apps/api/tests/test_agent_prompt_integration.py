@@ -63,7 +63,7 @@ from customers_manager_hub.models import (
     TenantRole,
 )
 from customers_manager_hub.security import hash_password
-from customers_manager_hub.worker import _process_job
+from customers_manager_hub.worker import process_job
 
 RUN_DB_INTEGRATION = os.environ.get("RUN_DB_INTEGRATION") == "1"
 DATABASE_URL = os.environ.get(
@@ -531,7 +531,7 @@ async def process_one_job(
             await queue.reclaim(consumer) if reclaim else await queue.consume(consumer, block_ms=1)
         )
         assert len(jobs) == 1
-        await _process_job(
+        await process_job(
             jobs[0],
             queue,
             ChannelRegistry((adapter,)),
@@ -656,7 +656,7 @@ def test_worker_generates_resumes_dispatch_and_deduplicates_agent_response() -> 
                 await queue.enqueue(event_id)
                 jobs = await queue.consume("agent-consumer-c", block_ms=1)
                 assert len(jobs) == 1
-                await _process_job(
+                await process_job(
                     jobs[0],
                     queue,
                     ChannelRegistry((adapter,)),

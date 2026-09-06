@@ -36,7 +36,7 @@ async def dependencies_ready(settings: Settings) -> bool:
     return postgres_ok and redis_ok
 
 
-async def _process_job(
+async def process_job(
     job: ChannelJob,
     queue: ChannelJobQueue,
     channel_registry: ChannelRegistry,
@@ -136,7 +136,7 @@ async def run_worker_async(settings: Settings, stop_event: asyncio.Event | None 
                 for job in jobs:
                     if resolved_stop_event.is_set():
                         break
-                    await _process_job(
+                    await process_job(
                         job,
                         queue,
                         channel_registry,
