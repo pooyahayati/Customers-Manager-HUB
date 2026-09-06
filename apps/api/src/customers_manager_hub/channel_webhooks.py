@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from redis.exceptions import RedisError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from customers_manager_hub.channel_gateway import ChannelProviderError, ChannelRegistry
+from customers_manager_hub.channel_gateway import ChannelProviderError
 from customers_manager_hub.channel_models import ChannelCredentialKind, ChannelType
 from customers_manager_hub.channel_queue import ChannelJobQueue
 from customers_manager_hub.channel_runtime import (
@@ -29,10 +29,6 @@ DbSession = Annotated[AsyncSession, Depends(get_db_session)]
 _MAX_TELEGRAM_WEBHOOK_BYTES = 1_000_000
 
 
-def get_channel_registry(request: Request) -> ChannelRegistry:
-    return cast(ChannelRegistry, request.app.state.channel_registry)
-
-
 def get_channel_queue(request: Request) -> ChannelJobQueue:
     return cast(ChannelJobQueue, request.app.state.channel_queue)
 
@@ -46,7 +42,6 @@ async def telegram_webhook(
     channel_account_id: UUID,
     request: Request,
     db: DbSession,
-    registry: Annotated[ChannelRegistry, Depends(get_channel_registry)],
     queue: Annotated[ChannelJobQueue, Depends(get_channel_queue)],
     settings: Annotated[Settings, Depends(get_runtime_settings)],
 ) -> dict[str, bool]:
@@ -104,5 +99,4 @@ async def telegram_webhook(
         except RedisError as exc:
             raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE) from exc
 
-    del registry  # Registry presence is part of the channel runtime contract for this endpoint.
     return {"ok": True}
