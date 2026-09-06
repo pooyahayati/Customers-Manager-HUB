@@ -108,6 +108,29 @@ def test_openai_rejects_invalid_structured_output() -> None:
     asyncio.run(run())
 
 
+def test_provider_schema_validation_errors_are_normalized() -> None:
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        return httpx2.Response(
+            200,
+            request=request,
+            json={"data": "not-an-embedding-list"},
+        )
+
+    async def run() -> None:
+        async with httpx2.AsyncClient(transport=httpx2.MockTransport(handler)) as client:
+            adapter = OpenAIAdapter(client, "test-openai-key")
+            with pytest.raises(AIProviderError, match="openai_invalid_response") as error:
+                await adapter.embed(
+                    "test-embedding-model",
+                    EmbeddingRequest(inputs=("alpha",)),
+                    {},
+                    5,
+                )
+            assert error.value.retryable is True
+
+    asyncio.run(run())
+
+
 def test_openai_embedding_and_transcription_contracts() -> None:
     def handler(request: httpx2.Request) -> httpx2.Response:
         assert request.headers["authorization"] == "Bearer test-openai-key"
