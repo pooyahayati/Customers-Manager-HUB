@@ -29,10 +29,10 @@ ENV NODE_ENV=production \
 WORKDIR /app
 
 COPY --from=builder --chown=node:node /app/apps/web/.next/standalone ./
-COPY --from=builder --chown=node:node /app/apps/web/.next/static ./.next/static
+COPY --from=builder --chown=node:node /app/apps/web/.next/static ./apps/web/.next/static
 
 USER node
 
 EXPOSE 3000
 
-CMD ["node", "server.js"]
+CMD ["node", "apps/web/server.js"]
