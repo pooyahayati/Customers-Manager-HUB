@@ -26,6 +26,8 @@ RUN groupadd --gid 10001 app \
     && useradd --uid 10001 --gid 10001 --create-home --shell /usr/sbin/nologin app
 
 COPY --from=builder /app/.venv /app/.venv
+COPY --chown=app:app alembic.ini ./alembic.ini
+COPY --chown=app:app apps/api/migrations ./apps/api/migrations
 
 USER app
 
