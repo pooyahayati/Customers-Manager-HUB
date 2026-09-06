@@ -33,26 +33,74 @@ jobs:
       - name: Refresh lockfile
         run: uv lock
 
-      - name: Apply known lint fix
+      - name: Apply known static fixes
         shell: bash
         run: |
           set -euo pipefail
           python - <<'PY'
           from pathlib import Path
 
-          path = Path("apps/api/src/customers_manager_hub/channels.py")
-          content = path.read_text()
+          gateway = Path("apps/api/src/customers_manager_hub/channel_gateway.py")
+          content = gateway.read_text()
+          if "def empty_channel_metadata()" not in content:
+              anchor = "\n\n@dataclass(frozen=True, slots=True)\nclass CanonicalAttachment:"
+              insert = "\n\ndef empty_channel_metadata() -> dict[str, object]:\n    return {}\n" + anchor
+              content = content.replace(anchor, insert, 1)
+          content = content.replace(
+              "field(default_factory=dict)",
+              "field(default_factory=empty_channel_metadata)",
+          )
+          gateway.write_text(content)
+
+          queue = Path("apps/api/src/customers_manager_hub/channel_queue.py")
+          content = queue.read_text().replace(
+              "return Redis.from_url(settings.redis_url, decode_responses=True)",
+              "return Redis.from_url(settings.redis_url, decode_responses=True)  # pyright: ignore[reportUnknownMemberType]",
+          )
+          queue.write_text(content)
+
+          channels = Path("apps/api/src/customers_manager_hub/channels.py")
+          content = channels.read_text()
+          content = content.replace(
+              "from typing import Annotated, cast",
+              "from typing import Annotated, Never, cast",
+          )
           content = content.replace(
               '    def require_change(self) -> "ChannelUpdate":',
-              '    def require_change(self) -> ChannelUpdate:',
+              "    def require_change(self) -> ChannelUpdate:",
           )
-          path.write_text(content)
+          content = content.replace(
+              "def _raise_provider_error(exc: ChannelProviderError) -> None:",
+              "def _raise_provider_error(exc: ChannelProviderError) -> Never:",
+          )
+          content = content.replace(
+              "def _raise_runtime_error(exc: ChannelRuntimeError) -> None:",
+              "def _raise_runtime_error(exc: ChannelRuntimeError) -> Never:",
+          )
+          channels.write_text(content)
+
+          telegram_test = Path("apps/api/tests/test_telegram.py")
+          content = telegram_test.read_text()
+          if "from typing import cast" not in content:
+              content = content.replace("import json\n", "import json\nfrom typing import cast\n", 1)
+          content = content.replace(
+              "payload = json.loads(request.content.decode()) if request.content else {}",
+              "payload = cast(dict[str, object], json.loads(request.content.decode())) if request.content else {}",
+          )
+          telegram_test.write_text(content)
+
+          integration_test = Path("apps/api/tests/test_telegram_channel_integration.py")
+          content = integration_test.read_text().replace(
+              "SYNC_REDIS = Redis.from_url(REDIS_URL, decode_responses=True)",
+              "SYNC_REDIS = Redis.from_url(REDIS_URL, decode_responses=True)  # pyright: ignore[reportUnknownMemberType]",
+          )
+          integration_test.write_text(content)
           PY
 
       - name: Apply canonical Ruff formatting
         run: uv run ruff format .
 
-      - name: Commit generated lock formatting and lint fix
+      - name: Commit generated validation fixes
         shell: bash
         run: |
           set -euo pipefail
