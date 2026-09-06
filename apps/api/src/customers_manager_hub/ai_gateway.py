@@ -180,7 +180,7 @@ class ResolvedTaskProfile:
 
 
 ResultT = TypeVar("ResultT", bound=AIProviderResult)
-ProviderCall = Callable[[AIProviderAdapter, ResolvedRoute], Awaitable[ResultT]]
+ProviderCall = Callable[[AIProviderAdapter, ResolvedRoute, int], Awaitable[ResultT]]
 
 
 class AIGateway:
@@ -203,11 +203,11 @@ class AIGateway:
             tenant_id,
             task_type,
             AIOperation.GENERATION,
-            lambda adapter, route: adapter.generate(
+            lambda adapter, route, timeout: adapter.generate(
                 route.model_id,
                 request,
                 route.parameters,
-                self._profile_timeout_placeholder,
+                timeout,
             ),
         )
 
@@ -218,11 +218,11 @@ class AIGateway:
             tenant_id,
             AITaskType.EMBEDDING,
             AIOperation.EMBEDDING,
-            lambda adapter, route: adapter.embed(
+            lambda adapter, route, timeout: adapter.embed(
                 route.model_id,
                 request,
                 route.parameters,
-                self._profile_timeout_placeholder,
+                timeout,
             ),
         )
 
@@ -237,17 +237,13 @@ class AIGateway:
             tenant_id,
             AITaskType.VOICE_TRANSCRIPTION,
             AIOperation.TRANSCRIPTION,
-            lambda adapter, route: adapter.transcribe(
+            lambda adapter, route, timeout: adapter.transcribe(
                 route.model_id,
                 request,
                 route.parameters,
-                self._profile_timeout_placeholder,
+                timeout,
             ),
         )
-
-    @property
-    def _profile_timeout_placeholder(self) -> int:
-        raise RuntimeError("Profile timeout must be supplied by the routing loop")
 
     @staticmethod
     def _require_operation(task_type: AITaskType, operation: AIOperation) -> None:
@@ -393,7 +389,7 @@ class AIGateway:
     ) -> ResultT:
         try:
             async with asyncio.timeout(timeout_seconds):
-                return await call(adapter, route)
+                return await call(adapter, route, timeout_seconds)
         except TimeoutError as exc:
             raise AIProviderError("provider_timeout", retryable=True) from exc
 
