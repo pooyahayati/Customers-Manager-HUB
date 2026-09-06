@@ -61,7 +61,7 @@ services:
       - cmh
 
   redis:
-    image: redis:8.8.2-trixie
+    image: redis:8.8.2-bookworm
     container_name: cmh-redis
     restart: unless-stopped
     command: ["redis-server", "--appendonly", "yes"]
