@@ -326,12 +326,20 @@ def test_read_only_roles_can_read_but_cannot_write_customer_records() -> None:
             assert create_conversation(read_only_client, tenant_id, contact_id).status_code == 403
 
 
-def test_supervisor_and_agent_have_customer_domain_write_access() -> None:
+def test_privileged_staff_roles_have_customer_domain_write_access() -> None:
     tenant_id, _ = seed_tenant_user(
         tenant_slug="staff-tenant",
         tenant_name="Staff Tenant",
         email="owner@example.com",
         password="owner password 1234",
+    )
+    seed_tenant_user(
+        tenant_slug="unused-admin",
+        tenant_name="unused",
+        email="admin@example.com",
+        password="admin password 1234",
+        role=TenantRole.ADMIN,
+        tenant_id=tenant_id,
     )
     seed_tenant_user(
         tenant_slug="unused-supervisor",
@@ -349,6 +357,11 @@ def test_supervisor_and_agent_have_customer_domain_write_access() -> None:
         role=TenantRole.AGENT,
         tenant_id=tenant_id,
     )
+
+    with TestClient(create_app(TEST_SETTINGS)) as admin_client:
+        login(admin_client, "admin@example.com", "admin password 1234")
+        admin_contact = create_contact(admin_client, tenant_id, "Created by admin")
+        assert admin_contact.status_code == 201
 
     with TestClient(create_app(TEST_SETTINGS)) as supervisor_client:
         login(supervisor_client, "supervisor@example.com", "supervisor password 1234")
@@ -373,7 +386,7 @@ def test_supervisor_and_agent_have_customer_domain_write_access() -> None:
         assert message.status_code == 201
 
 
-def test_sensitive_message_metadata_is_rejected_before_persistence() -> None:
+def test_sensitive_metadata_and_naive_occurrence_time_are_rejected() -> None:
     tenant_id, _ = seed_tenant_user(
         tenant_slug="metadata-tenant",
         tenant_name="Metadata Tenant",
@@ -385,8 +398,10 @@ def test_sensitive_message_metadata_is_rejected_before_persistence() -> None:
         login(client, "owner@example.com", "owner password 1234")
         contact = create_contact(client, tenant_id, "Customer")
         conversation = create_conversation(client, tenant_id, contact.json()["id"])
-        response = client.post(
-            f"/api/v1/tenants/{tenant_id}/conversations/{conversation.json()['id']}/messages",
+        endpoint = f"/api/v1/tenants/{tenant_id}/conversations/{conversation.json()['id']}/messages"
+
+        sensitive_metadata = client.post(
+            endpoint,
             json={
                 "direction": "inbound",
                 "author_type": "customer",
@@ -395,4 +410,16 @@ def test_sensitive_message_metadata_is_rejected_before_persistence() -> None:
                 "metadata": {"nested": {"authorization": "Bearer secret"}},
             },
         )
-        assert response.status_code == 422
+        assert sensitive_metadata.status_code == 422
+
+        naive_timestamp = client.post(
+            endpoint,
+            json={
+                "direction": "inbound",
+                "author_type": "customer",
+                "message_type": "text",
+                "text": "hello",
+                "occurred_at": "2026-09-06T12:00:00",
+            },
+        )
+        assert naive_timestamp.status_code == 422
