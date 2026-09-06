@@ -36,6 +36,7 @@ jobs:
           set -euo pipefail
           python - <<'PY'
           from pathlib import Path
+          from textwrap import dedent, indent
 
           runtime = Path("apps/api/src/customers_manager_hub/channel_runtime.py")
           content = runtime.read_text()
@@ -55,7 +56,7 @@ jobs:
               return value if value < 2**63 else value - 2**64
 
 
-          def _outbound_message_matches(
+def _outbound_message_matches(
               message: Message,
               *,
               tenant_id: UUID,
@@ -75,7 +76,7 @@ jobs:
               )
 
 
-          async def dispatch_text(
+async def dispatch_text(
               db: AsyncSession,
               registry: ChannelRegistry,
               settings: Settings,
@@ -201,27 +202,26 @@ jobs:
               await db.refresh(message)
               return message
           '''
-          replacement = "\n".join(line[10:] if line.startswith("          ") else line for line in replacement.splitlines()) + "\n"
-          runtime.write_text(prefix + replacement)
+          runtime.write_text(prefix + dedent(replacement).lstrip())
 
           webhook = Path("apps/api/src/customers_manager_hub/channel_webhooks.py")
           content = webhook.read_text()
-          old = '''    body = await request.body()
+          old = dedent('''\
+              body = await request.body()
               if len(body) > _MAX_TELEGRAM_WEBHOOK_BYTES:
                   raise HTTPException(status_code=status.HTTP_413_CONTENT_TOO_LARGE)
               try:
                   payload: object = json.loads(body)
-          '''
-          old = "\n".join(line[10:] if line.startswith("          ") else line for line in old.splitlines()) + "\n"
-          new = '''    body = bytearray()
+          ''')
+          new = dedent('''\
+              body = bytearray()
               async for chunk in request.stream():
                   if len(body) + len(chunk) > _MAX_TELEGRAM_WEBHOOK_BYTES:
                       raise HTTPException(status_code=status.HTTP_413_CONTENT_TOO_LARGE)
                   body.extend(chunk)
               try:
                   payload: object = json.loads(body)
-          '''
-          new = "\n".join(line[10:] if line.startswith("          ") else line for line in new.splitlines()) + "\n"
+          ''')
           if old not in content:
               raise SystemExit("Webhook body block not found")
           webhook.write_text(content.replace(old, new, 1))
@@ -239,16 +239,17 @@ jobs:
               1,
           )
           content = content.replace(
-              "    async def send_text(\n        self,\n        access_secret: str,\n        *,\n        external_thread_id: str,\n        text: str,\n    ) -> ChannelSendResult:\n        self.send_calls.append((access_secret, external_thread_id, text))",
-              "    async def send_text(\n        self,\n        access_secret: str,\n        *,\n        external_thread_id: str,\n        text: str,\n    ) -> ChannelSendResult:\n        await asyncio.sleep(0.05)\n        self.send_calls.append((access_secret, external_thread_id, text))",
+              "    ) -> ChannelSendResult:\n        self.send_calls.append((access_secret, external_thread_id, text))",
+              "    ) -> ChannelSendResult:\n        await asyncio.sleep(0.05)\n        self.send_calls.append((access_secret, external_thread_id, text))",
               1,
           )
-          marker = '''        assert repeated.status_code == 200
-              assert repeated.json()["id"] == sent.json()["id"]
-              assert len(adapter.send_calls) == 1
-          '''
-          marker = "\n".join(line[10:] if line.startswith("          ") else line for line in marker.splitlines()) + "\n"
-          addition = '''        assert repeated.status_code == 200
+          marker = (
+              '        assert repeated.status_code == 200\n'
+              '        assert repeated.json()["id"] == sent.json()["id"]\n'
+              '        assert len(adapter.send_calls) == 1\n'
+          )
+          addition_body = dedent('''\
+              assert repeated.status_code == 200
               assert repeated.json()["id"] == sent.json()["id"]
               assert len(adapter.send_calls) == 1
 
@@ -285,8 +286,8 @@ jobs:
               concurrent_ids = asyncio.run(send_concurrently())
               assert concurrent_ids[0] == concurrent_ids[1]
               assert len(adapter.send_calls) == 2
-          '''
-          addition = "\n".join(line[10:] if line.startswith("          ") else line for line in addition.splitlines()) + "\n"
+          ''')
+          addition = indent(addition_body, "        ")
           if marker not in content:
               raise SystemExit("Outbound test marker not found")
           test.write_text(content.replace(marker, addition, 1))
@@ -294,14 +295,14 @@ jobs:
           spec = Path("specs/MILESTONE-5-CHANNEL-FRAMEWORK-TELEGRAM.md")
           content = spec.read_text()
           marker = "- never exposes the bot token.\n\nThis endpoint exists to prove outbound transport before Agent Runtime."
-          replacement = '''- never exposes the bot token.
-          - serializes concurrent requests that reuse the same tenant/idempotency key before calling the external provider;
-          - returns an idempotency conflict when the same key is reused with a different outbound payload.
+          replacement = dedent('''\
+              - never exposes the bot token.
+              - serializes concurrent requests that reuse the same tenant/idempotency key before calling the external provider;
+              - returns an idempotency conflict when the same key is reused with a different outbound payload.
 
-          Telegram does not expose an idempotency token for `sendMessage`. A process failure after Telegram accepts a message but before PostgreSQL commits can therefore still produce at-least-once delivery on a later retry. Durable outbound delivery/outbox reconciliation is deferred to the Agent/production-hardening lifecycle rather than falsely claiming exactly-once external delivery.
+              Telegram does not expose an idempotency token for `sendMessage`. A process failure after Telegram accepts a message but before PostgreSQL commits can therefore still produce at-least-once delivery on a later retry. Durable outbound delivery/outbox reconciliation is deferred to the Agent/production-hardening lifecycle rather than falsely claiming exactly-once external delivery.
 
-          This endpoint exists to prove outbound transport before Agent Runtime.'''
-          replacement = "\n".join(line[10:] if line.startswith("          ") else line for line in replacement.splitlines())
+              This endpoint exists to prove outbound transport before Agent Runtime.''')
           if marker not in content:
               raise SystemExit("Spec outbound marker not found")
           spec.write_text(content.replace(marker, replacement, 1))
