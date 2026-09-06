@@ -34,11 +34,14 @@ class ReadinessResponse(BaseModel):
 async def check_postgres(settings: Settings) -> bool:
     """Check PostgreSQL reachability and pgvector extension availability."""
     try:
-        async with await psycopg.AsyncConnection.connect(
-            settings.postgres_dsn,
-            connect_timeout=settings.dependency_timeout_seconds,
-            autocommit=True,
-        ) as connection, connection.cursor() as cursor:
+        async with (
+            await psycopg.AsyncConnection.connect(
+                settings.postgres_dsn,
+                connect_timeout=settings.dependency_timeout_seconds,
+                autocommit=True,
+            ) as connection,
+            connection.cursor() as cursor,
+        ):
             await cursor.execute(
                 "SELECT EXISTS (SELECT 1 FROM pg_available_extensions WHERE name = 'vector')"
             )
