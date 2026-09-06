@@ -38,13 +38,12 @@ async def check_postgres(settings: Settings) -> bool:
             settings.postgres_dsn,
             connect_timeout=settings.dependency_timeout_seconds,
             autocommit=True,
-        ) as connection:
-            async with connection.cursor() as cursor:
-                await cursor.execute(
-                    "SELECT EXISTS (SELECT 1 FROM pg_available_extensions WHERE name = 'vector')"
-                )
-                row = await cursor.fetchone()
-                return bool(row is not None and row[0])
+        ) as connection, connection.cursor() as cursor:
+            await cursor.execute(
+                "SELECT EXISTS (SELECT 1 FROM pg_available_extensions WHERE name = 'vector')"
+            )
+            row = await cursor.fetchone()
+            return bool(row is not None and row[0])
     except psycopg.Error, OSError, TimeoutError:
         logger.warning("PostgreSQL readiness check failed")
         return False
