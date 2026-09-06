@@ -145,6 +145,15 @@ class MessageCreate(BaseModel):
         normalized = value.strip()
         return normalized or None
 
+    @field_validator("occurred_at")
+    @classmethod
+    def normalize_occurred_at(cls, value: datetime | None) -> datetime | None:
+        if value is None:
+            return None
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("Message occurrence timestamp must include a timezone")
+        return value.astimezone(UTC)
+
     @field_validator("metadata")
     @classmethod
     def validate_metadata(cls, value: dict[str, object]) -> dict[str, object]:
