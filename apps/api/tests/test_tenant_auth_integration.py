@@ -2,7 +2,6 @@ import asyncio
 import os
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
-from typing import cast
 from uuid import UUID
 
 import pytest
@@ -40,10 +39,7 @@ pytestmark = pytest.mark.skipif(
 
 
 def client_get(client: TestClient, path: str) -> Response:
-    return cast(
-        Response,
-        client.get(path),  # pyright: ignore[reportUnknownMemberType]
-    )
+    return client.get(path)
 
 
 def client_post(
@@ -52,17 +48,11 @@ def client_post(
     *,
     json: dict[str, str] | None = None,
 ) -> Response:
-    return cast(
-        Response,
-        client.post(path, json=json),  # pyright: ignore[reportUnknownMemberType]
-    )
+    return client.post(path, json=json)
 
 
 def client_patch(client: TestClient, path: str, *, json: dict[str, str]) -> Response:
-    return cast(
-        Response,
-        client.patch(path, json=json),  # pyright: ignore[reportUnknownMemberType]
-    )
+    return client.patch(path, json=json)
 
 
 @pytest.fixture(autouse=True)
