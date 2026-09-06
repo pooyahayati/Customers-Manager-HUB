@@ -47,7 +47,7 @@ jobs:
       - name: Commit resolved lockfile
         shell: bash
         run: |
-          if git diff --quiet -- uv.lock; then
+          if [ -z "$(git status --porcelain -- uv.lock)" ]; then
             echo 'uv.lock is unchanged.'
             exit 0
           fi
