@@ -27,8 +27,6 @@ def test_production_rejects_bootstrap_database_credentials() -> None:
     with pytest.raises(ValidationError):
         Settings(
             app_env="production",
-            database_url=(
-                "postgresql://cmh:change-me@postgres:5432/customers_manager_hub"
-            ),
+            database_url=("postgresql://cmh:change-me@postgres:5432/customers_manager_hub"),
             _env_file=None,
         )
