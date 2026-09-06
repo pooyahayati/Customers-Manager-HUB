@@ -480,7 +480,7 @@ class GeminiAdapter:
                 "content": {"parts": [{"text": text}]},
             }
             if parameters:
-                item["config"] = dict(parameters)
+                item["embedContentConfig"] = dict(parameters)
             requests.append(item)
         raw_response, raw_payload = await _post_json(
             self._client,
