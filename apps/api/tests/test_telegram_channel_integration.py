@@ -319,6 +319,14 @@ def test_channel_configuration_encrypts_secrets_and_enforces_rbac_and_tenant_iso
         password="owner password tenant b",
     )
     seed_tenant_user(
+        tenant_slug="unused-admin",
+        tenant_name="unused",
+        email="admin-a@example.com",
+        password="admin password tenant a",
+        role=TenantRole.ADMIN,
+        tenant_id=tenant_a,
+    )
+    seed_tenant_user(
         tenant_slug="unused-viewer",
         tenant_name="unused",
         email="viewer-a@example.com",
@@ -363,6 +371,18 @@ def test_channel_configuration_encrypts_secrets_and_enforces_rbac_and_tenant_iso
     finally:
         close_channel_client(owner_client)
 
+    _, admin_client = channel_client(adapter)
+    try:
+        login(admin_client, "admin-a@example.com", "admin password tenant a")
+        allowed = admin_client.patch(
+            f"/api/v1/tenants/{tenant_a}/channels/{account_id}",
+            json={"name": "Admin Updated Bot"},
+        )
+        assert allowed.status_code == 200
+        assert allowed.json()["name"] == "Admin Updated Bot"
+    finally:
+        close_channel_client(admin_client)
+
     _, viewer_client = channel_client(adapter)
     try:
         login(viewer_client, "viewer-a@example.com", "viewer password tenant a")
@@ -396,6 +416,11 @@ def test_verified_text_webhook_persists_canonical_state_and_deduplicates() -> No
         account_id = create_channel(client, tenant_id)
         secret = stored_secret(account_id, ChannelCredentialKind.TELEGRAM_WEBHOOK_SECRET)
 
+        missing_secret = client.post(
+            f"/api/v1/webhooks/telegram/{account_id}",
+            json=telegram_text_update(100, 10),
+        )
+        assert missing_secret.status_code == 401
         assert (
             webhook(client, account_id, "wrong-secret", telegram_text_update(100, 10)).status_code
             == 401
@@ -422,6 +447,11 @@ def test_verified_text_webhook_persists_canonical_state_and_deduplicates() -> No
 
         initial_stream_length = SYNC_REDIS.xlen(CHANNEL_JOB_STREAM)
         assert initial_stream_length == 1
+        stream_payload = repr(SYNC_REDIS.xrange(CHANNEL_JOB_STREAM))
+        assert "test-bot-token" not in stream_payload
+        assert secret not in stream_payload
+        assert "job_type" in stream_payload
+        assert str(event_id) in stream_payload
         duplicate = webhook(client, account_id, secret, telegram_text_update(100, 10))
         assert duplicate.status_code == 200
         assert SYNC_REDIS.xlen(CHANNEL_JOB_STREAM) == initial_stream_length
@@ -551,6 +581,14 @@ def test_outbound_text_dispatch_is_role_scoped_and_idempotent() -> None:
         tenant_id=tenant_id,
     )
     seed_tenant_user(
+        tenant_slug="unused-agent",
+        tenant_name="unused",
+        email="agent@example.com",
+        password="agent password",
+        role=TenantRole.AGENT,
+        tenant_id=tenant_id,
+    )
+    seed_tenant_user(
         tenant_slug="unused-viewer",
         tenant_name="unused",
         email="viewer@example.com",
@@ -578,6 +616,11 @@ def test_outbound_text_dispatch_is_role_scoped_and_idempotent() -> None:
     _, supervisor_client = channel_client(adapter)
     try:
         login(supervisor_client, "supervisor@example.com", "supervisor password")
+        denied_config = supervisor_client.patch(
+            f"/api/v1/tenants/{tenant_id}/channels/{account_id}",
+            json={"name": "Supervisor Cannot Change This"},
+        )
+        assert denied_config.status_code == 403
         payload = {
             "conversation_id": str(conversation_id),
             "text": "Human reply",
@@ -633,6 +676,27 @@ def test_outbound_text_dispatch_is_role_scoped_and_idempotent() -> None:
         assert len(adapter.send_calls) == 2
     finally:
         close_channel_client(supervisor_client)
+
+    _, agent_client = channel_client(adapter)
+    try:
+        login(agent_client, "agent@example.com", "agent password")
+        denied_config = agent_client.patch(
+            f"/api/v1/tenants/{tenant_id}/channels/{account_id}",
+            json={"name": "Agent Cannot Change This"},
+        )
+        assert denied_config.status_code == 403
+        agent_sent = agent_client.post(
+            f"/api/v1/tenants/{tenant_id}/channels/{account_id}/send-text",
+            json={
+                "conversation_id": str(conversation_id),
+                "text": "Agent reply",
+                "idempotency_key": "telegram-outbound:agent",
+            },
+        )
+        assert agent_sent.status_code == 200
+        assert agent_sent.json()["direction"] == MessageDirection.OUTBOUND.value
+    finally:
+        close_channel_client(agent_client)
 
     _, viewer_client = channel_client(adapter)
     try:
