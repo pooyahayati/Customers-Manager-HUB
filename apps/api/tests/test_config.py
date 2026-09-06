@@ -1,7 +1,6 @@
 import pytest
-from pydantic import ValidationError
-
 from customers_manager_hub.config import Settings
+from pydantic import ValidationError
 
 
 def test_settings_parse_environment(monkeypatch: pytest.MonkeyPatch) -> None:
