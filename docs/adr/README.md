@@ -50,5 +50,6 @@ If an accepted decision materially changes, create a new ADR that supersedes the
 - ADR-003 — Channel Adapters + Canonical Messages
 - ADR-004 — Multi-Tenant by Design
 - ADR-005 — Event-Driven Inbound Message Processing
+- ADR-006 — Defer Self-Hosted Object Storage Backend Selection
 
-Additional ADRs are listed in `ARCHITECTURE.md` and should be created when their implementation becomes imminent.
+Additional ADRs should be created only when a material implementation decision becomes imminent.
