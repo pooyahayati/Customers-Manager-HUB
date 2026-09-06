@@ -24,8 +24,16 @@ def create_channel_redis(settings: Settings) -> Redis:
 
 
 class ChannelJobQueue:
-    def __init__(self, redis_client: Redis) -> None:
+    def __init__(
+        self,
+        redis_client: Redis,
+        *,
+        claim_idle_ms: int = CHANNEL_JOB_CLAIM_IDLE_MS,
+    ) -> None:
+        if claim_idle_ms < 0:
+            raise ValueError("claim_idle_ms must not be negative")
         self._redis = redis_client
+        self._claim_idle_ms = claim_idle_ms
 
     async def ensure_group(self) -> None:
         try:
@@ -73,7 +81,7 @@ class ChannelJobQueue:
             CHANNEL_JOB_STREAM,
             CHANNEL_JOB_GROUP,
             consumer_name,
-            min_idle_time=CHANNEL_JOB_CLAIM_IDLE_MS,
+            min_idle_time=self._claim_idle_ms,
             start_id="0-0",
             count=count,
         )
