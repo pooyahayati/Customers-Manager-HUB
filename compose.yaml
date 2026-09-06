@@ -11,6 +11,8 @@ services:
       APP_LOG_LEVEL: "${APP_LOG_LEVEL:-INFO}"
       DATABASE_URL: "${DATABASE_URL:-postgresql+psycopg://cmh:change-me@postgres:5432/customers_manager_hub}"
       REDIS_URL: "${REDIS_URL:-redis://redis:6379/0}"
+      ENCRYPTION_KEY: "${ENCRYPTION_KEY:-}"
+      TELEGRAM_WEBHOOK_BASE_URL: "${TELEGRAM_WEBHOOK_BASE_URL:-}"
     ports:
       - "${API_PORT:-8000}:8000"
     depends_on:
@@ -46,6 +48,7 @@ services:
       APP_LOG_LEVEL: "${APP_LOG_LEVEL:-INFO}"
       DATABASE_URL: "${DATABASE_URL:-postgresql+psycopg://cmh:change-me@postgres:5432/customers_manager_hub}"
       REDIS_URL: "${REDIS_URL:-redis://redis:6379/0}"
+      ENCRYPTION_KEY: "${ENCRYPTION_KEY:-}"
     depends_on:
       postgres:
         condition: service_healthy
