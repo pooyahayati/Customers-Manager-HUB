@@ -1,3 +1,4 @@
+import json
 import secrets
 from json import JSONDecodeError
 from typing import Annotated, cast
@@ -76,9 +77,12 @@ async def telegram_webhook(
     if not secrets.compare_digest(supplied_secret, expected_secret):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED)
 
+    body = await request.body()
+    if len(body) > _MAX_TELEGRAM_WEBHOOK_BYTES:
+        raise HTTPException(status_code=status.HTTP_413_CONTENT_TOO_LARGE)
     try:
-        payload = await request.json()
-    except (JSONDecodeError, ValueError) as exc:
+        payload: object = json.loads(body)
+    except (JSONDecodeError, UnicodeDecodeError, ValueError) as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST) from exc
     try:
         normalized = normalize_telegram_update(payload, account.id)
