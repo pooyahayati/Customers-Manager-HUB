@@ -74,12 +74,18 @@ class Settings(BaseSettings):
     def reject_insecure_production_defaults(self) -> Self:
         if self.app_env == "production" and "change-me" in self.database_url:
             raise ValueError("Production DATABASE_URL must not use bootstrap credentials")
-        if self.app_env in {"staging", "production"} and self.telegram_webhook_base_url is not None:
-            if not self.telegram_webhook_base_url.startswith("https://"):
-                raise ValueError("Staging/production Telegram webhook base URL must use HTTPS")
-        if self.app_env in {"staging", "production"} and self.encryption_key is not None:
-            if self.encryption_key.get_secret_value() == "change-me":
-                raise ValueError("Staging/production ENCRYPTION_KEY must not use a placeholder")
+        if (
+            self.app_env in {"staging", "production"}
+            and self.telegram_webhook_base_url is not None
+            and not self.telegram_webhook_base_url.startswith("https://")
+        ):
+            raise ValueError("Staging/production Telegram webhook base URL must use HTTPS")
+        if (
+            self.app_env in {"staging", "production"}
+            and self.encryption_key is not None
+            and self.encryption_key.get_secret_value() == "change-me"
+        ):
+            raise ValueError("Staging/production ENCRYPTION_KEY must not use a placeholder")
         return self
 
     @property
