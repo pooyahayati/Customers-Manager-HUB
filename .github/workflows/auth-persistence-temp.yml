@@ -30,14 +30,15 @@ jobs:
       - name: Sync dependencies
         run: uv sync --frozen
 
-      - name: Apply required formatting
+      - name: Apply required style fixes
         run: |
           uv run ruff format apps/api/src/customers_manager_hub/models.py migrations/versions/0001_tenant_auth_rbac.py
+          uv run ruff check --fix apps/api/src/customers_manager_hub/models.py migrations/versions/0001_tenant_auth_rbac.py
           if ! git diff --quiet; then
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git add apps/api/src/customers_manager_hub/models.py migrations/versions/0001_tenant_auth_rbac.py
-            git commit -m "style(auth): apply ruff formatting"
+            git commit -m "style(auth): apply ruff fixes"
             git pull --rebase origin feat/tenant-auth-rbac-foundation
             git push origin HEAD:feat/tenant-auth-rbac-foundation
           fi
