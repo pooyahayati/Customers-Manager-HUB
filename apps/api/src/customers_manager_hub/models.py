@@ -1,4 +1,5 @@
 from datetime import datetime
+from enum import Enum as PythonEnum
 from enum import StrEnum
 from uuid import UUID, uuid7
 
@@ -40,6 +41,11 @@ class TenantRole(StrEnum):
     AGENT = "agent"
     ANALYST = "analyst"
     VIEWER = "viewer"
+
+
+def enum_values(enum_class: type[PythonEnum]) -> list[str]:
+    """Return stable persisted values for a Python enum."""
+    return [str(member.value) for member in enum_class]
 
 
 class TimestampMixin:
@@ -105,7 +111,7 @@ class TenantMembership(TimestampMixin, Base):
         Enum(
             TenantRole,
             name="tenant_role",
-            values_callable=lambda enum_cls: [member.value for member in enum_cls],
+            values_callable=enum_values,
         ),
         nullable=False,
     )
