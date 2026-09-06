@@ -1,4 +1,3 @@
-from typing import cast
 from unittest.mock import AsyncMock
 
 import pytest
@@ -20,10 +19,7 @@ def make_test_settings() -> Settings:
 
 
 def get_response(client: TestClient, path: str) -> Response:
-    return cast(
-        Response,
-        client.get(path),  # pyright: ignore[reportUnknownMemberType]
-    )
+    return client.get(path)
 
 
 def test_health_returns_ok() -> None:
