@@ -59,6 +59,13 @@ class Settings(BaseSettings):
         """Return a Psycopg-compatible PostgreSQL DSN."""
         return self.database_url.replace("postgresql+psycopg://", "postgresql://", 1)
 
+    @property
+    def sqlalchemy_database_url(self) -> str:
+        """Return a SQLAlchemy URL using the existing Psycopg driver."""
+        if self.database_url.startswith("postgresql+psycopg://"):
+            return self.database_url
+        return self.database_url.replace("postgresql://", "postgresql+psycopg://", 1)
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
