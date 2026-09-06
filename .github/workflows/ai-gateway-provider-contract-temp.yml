@@ -28,7 +28,6 @@ jobs:
         run: python -m pip install uv==0.12.10
 
       - name: Apply reserved transcription parameter guard
-        id: fix
         shell: bash
         run: |
           set -euo pipefail
@@ -36,18 +35,21 @@ jobs:
           from pathlib import Path
 
           path = Path("apps/api/src/customers_manager_hub/ai_providers.py")
-          content = path.read_text()
-          old = """        for key, value in parameters.items():
-              if isinstance(value, bool):
-          """
-          new = """        for key, value in parameters.items():
-              if key.strip().casefold() in {\"model\", \"file\"}:
-                  raise AIProviderError(\"openai_reserved_transcription_parameter\", retryable=False)
-              if isinstance(value, bool):
-          """
-          if old not in content:
-              raise SystemExit("Expected OpenAI transcription parameter loop not found")
-          path.write_text(content.replace(old, new, 1))
+          lines = path.read_text().splitlines()
+          anchor = '        data: dict[str, str] = {"model": model_id}'
+          anchor_index = lines.index(anchor)
+          loop_index = next(
+              index
+              for index in range(anchor_index + 1, min(anchor_index + 8, len(lines)))
+              if lines[index].strip() == "for key, value in parameters.items():"
+          )
+          guard_line = '            if key.strip().casefold() in {"model", "file"}:'
+          if guard_line not in lines[loop_index + 1 : loop_index + 5]:
+              lines[loop_index + 1 : loop_index + 1] = [
+                  guard_line,
+                  '                raise AIProviderError("openai_reserved_transcription_parameter", retryable=False)',
+              ]
+          path.write_text("\n".join(lines) + "\n")
           PY
           uv run ruff format apps/api/src/customers_manager_hub/ai_providers.py
           git config user.name "github-actions[bot]"
