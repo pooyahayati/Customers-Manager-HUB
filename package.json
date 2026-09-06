@@ -1,0 +1,13 @@
+{
+  "name": "customers-manager-hub",
+  "private": true,
+  "packageManager": "pnpm@12.3.4",
+  "engines": {
+    "node": ">=24 <25"
+  },
+  "scripts": {
+    "lint": "pnpm --filter @customers-manager-hub/web lint",
+    "typecheck": "pnpm --filter @customers-manager-hub/web typecheck",
+    "build": "pnpm --filter @customers-manager-hub/web build"
+  }
+}

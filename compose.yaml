@@ -33,6 +33,28 @@ services:
     networks:
       - cmh
 
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "${WEB_PORT:-3000}:3000"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3000/').then((response) => { if (!response.ok) process.exit(1); }).catch(() => process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - cmh
+
   postgres:
     build:
       context: .
@@ -83,8 +105,8 @@ services:
 # maintained S3-compatible self-hosted backend through an ADR. The application
 # contract remains S3-compatible so cloud S3 providers can also be used.
 #
-# Worker and web services will be added only after their runtime entrypoints and
-# Dockerfiles provide meaningful runnable behavior.
+# Worker service will be added only after its runtime entrypoint provides
+# meaningful runnable behavior.
 
 volumes:
   postgres_data:
