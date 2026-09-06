@@ -2,7 +2,12 @@ from collections.abc import AsyncIterator
 from typing import TypeAlias, cast
 
 from fastapi import Request
-from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
 
 from customers_manager_hub.config import Settings
 
