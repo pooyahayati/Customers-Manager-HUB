@@ -41,13 +41,11 @@ async def check_postgres(settings: Settings) -> bool:
         ) as connection:
             async with connection.cursor() as cursor:
                 await cursor.execute(
-                    "SELECT EXISTS ("
-                    "SELECT 1 FROM pg_available_extensions WHERE name = 'vector'"
-                    ")"
+                    "SELECT EXISTS (SELECT 1 FROM pg_available_extensions WHERE name = 'vector')"
                 )
                 row = await cursor.fetchone()
                 return bool(row is not None and row[0])
-    except (psycopg.Error, OSError, TimeoutError):
+    except psycopg.Error, OSError, TimeoutError:
         logger.warning("PostgreSQL readiness check failed")
         return False
 
@@ -62,7 +60,7 @@ async def check_redis(settings: Settings) -> bool:
     )
     try:
         return bool(await client.ping())
-    except (RedisError, OSError, TimeoutError):
+    except RedisError, OSError, TimeoutError:
         logger.warning("Redis readiness check failed")
         return False
     finally:
