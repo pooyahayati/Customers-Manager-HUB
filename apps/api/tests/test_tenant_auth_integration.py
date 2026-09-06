@@ -10,6 +10,7 @@ from httpx2 import Response
 from sqlalchemy import create_engine, select, text
 from sqlalchemy.orm import Session
 
+from customers_manager_hub import auth as auth_module
 from customers_manager_hub.auth import SESSION_COOKIE_NAME
 from customers_manager_hub.bootstrap import BootstrapError, bootstrap_initial_owner
 from customers_manager_hub.config import Settings
@@ -22,7 +23,7 @@ from customers_manager_hub.models import (
     TenantMembership,
     TenantRole,
 )
-from customers_manager_hub.security import hash_password, hash_session_token
+from customers_manager_hub.security import DUMMY_PASSWORD_HASH, hash_password, hash_session_token
 
 RUN_DB_INTEGRATION = os.environ.get("RUN_DB_INTEGRATION") == "1"
 DATABASE_URL = os.environ.get(
@@ -127,6 +128,29 @@ def test_bootstrap_is_single_use_and_audited() -> None:
 
     with pytest.raises(BootstrapError):
         bootstrap_owner()
+
+
+def test_unknown_email_still_runs_password_verification(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    verification_calls: list[tuple[str, str]] = []
+
+    def record_verification(password: str, encoded_hash: str) -> bool:
+        verification_calls.append((password, encoded_hash))
+        return False
+
+    monkeypatch.setattr(auth_module, "verify_password", record_verification)
+
+    with TestClient(create_app(TEST_SETTINGS)) as client:
+        response = client_post(
+            client,
+            "/api/v1/auth/login",
+            json={"email": "missing@example.com", "password": "incorrect password"},
+        )
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Invalid email or password"
+    assert verification_calls == [("incorrect password", DUMMY_PASSWORD_HASH)]
 
 
 def test_login_tenant_isolation_rbac_audit_and_logout() -> None:
