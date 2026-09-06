@@ -34,11 +34,16 @@ addopts = "-q"
 [tool.ruff]
 target-version = "py314"
 line-length = 100
+src = ["apps/api/src"]
 
 [tool.ruff.lint]
 select = ["E4", "E7", "E9", "F", "I", "UP", "B", "SIM"]
 
+[tool.ruff.lint.isort]
+known-first-party = ["customers_manager_hub"]
+
 [tool.pyright]
 include = ["apps/api/src", "apps/api/tests"]
+extraPaths = ["apps/api/src"]
 pythonVersion = "3.14"
 typeCheckingMode = "strict"
