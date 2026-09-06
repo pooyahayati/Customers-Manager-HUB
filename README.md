@@ -36,7 +36,7 @@ Initial architecture:
 - Channel adapter architecture.
 - PostgreSQL + pgvector.
 - Redis queue/cache/coordination.
-- S3-compatible object storage / MinIO for self-hosting.
+- S3-compatible object-storage contract; self-hosted backend selection is deferred until the file-storage milestone.
 - Next.js frontend.
 - FastAPI backend.
 - Docker Compose deployment.
@@ -46,8 +46,6 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the technical architecture.
 ## AI Task Routing
 
 The platform does not assume one model handles all AI operations.
-
-Conceptual examples:
 
 | Task | Provider | Model |
 |---|---|---|
@@ -94,7 +92,9 @@ See [PRD.md](PRD.md) for detailed product requirements and [ROADMAP.md](ROADMAP.
 - `ARCHITECTURE.md` — architecture and module boundaries.
 - `ROADMAP.md` — milestone sequence and delivery gates.
 - `docs/adr/` — Architecture Decision Records.
-- `.env.example` — documented non-secret environment configuration template.
+- `docs/development/TECHNICAL_BASELINE.md` — approved runtime/toolchain baseline.
+- `specs/MILESTONE-1-RUNTIME-SKELETON.md` — first implementation specification.
+- `.env.example` — non-secret environment configuration template.
 
 ## Development Governance
 
@@ -111,17 +111,26 @@ Codex is treated as an implementation engineer and must not silently redesign th
 
 ## Local Development
 
-The repository is still in Bootstrap Milestone 0.
+The repository is still in Bootstrap/Milestone 1 preparation. Application containers are intentionally not present yet.
 
-The final application containers and commands will be added during Milestone 1. The initial `docker-compose.yml` currently defines only the foundational data/infrastructure services required for upcoming development.
-
-Typical Bootstrap preparation:
+Bootstrap infrastructure currently includes PostgreSQL + pgvector and Redis.
 
 ```bash
 cp .env.example .env
-
-docker compose up -d postgres redis minio
+make infra-check
+make up
+make ps
 ```
+
+Useful infrastructure commands:
+
+```bash
+make logs
+make down
+make clean
+```
+
+`make clean` removes local project volumes and therefore deletes local PostgreSQL/Redis data.
 
 Do not commit `.env` or real credentials.
 
