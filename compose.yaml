@@ -1,4 +1,38 @@
 services:
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    restart: unless-stopped
+    environment:
+      APP_ENV: "${APP_ENV:-development}"
+      APP_NAME: "${APP_NAME:-Customers Manager HUB}"
+      APP_DEBUG: "${APP_DEBUG:-false}"
+      APP_LOG_LEVEL: "${APP_LOG_LEVEL:-INFO}"
+      DATABASE_URL: "${DATABASE_URL:-postgresql+psycopg://cmh:change-me@postgres:5432/customers_manager_hub}"
+      REDIS_URL: "${REDIS_URL:-redis://redis:6379/0}"
+    ports:
+      - "${API_PORT:-8000}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; response = urllib.request.urlopen('http://127.0.0.1:8000/ready', timeout=2); response.close()",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - cmh
+
   postgres:
     build:
       context: .
@@ -16,7 +50,7 @@ services:
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-cmh} -d ${POSTGRES_DB:-customers_manager_hub}"]
       interval: 10s
@@ -27,7 +61,7 @@ services:
       - cmh
 
   redis:
-    image: redis:8.8-bookworm
+    image: redis:8.8.2-trixie
     container_name: cmh-redis
     restart: unless-stopped
     command: ["redis-server", "--appendonly", "yes"]
@@ -45,14 +79,12 @@ services:
       - cmh
 
 # Object storage is intentionally not started in the bootstrap Compose file.
-# MinIO Community prebuilt images are now legacy/unmaintained. Before application
-# file storage is implemented, select and document an actively maintained
-# S3-compatible self-hosted backend through an ADR. The application contract
-# remains S3-compatible so cloud S3 providers can also be used.
+# Before application file storage is implemented, select and document an actively
+# maintained S3-compatible self-hosted backend through an ADR. The application
+# contract remains S3-compatible so cloud S3 providers can also be used.
 #
-# Application services (`api`, `worker`, `web`) will be added in Milestone 1
-# after their Dockerfiles and runtime entrypoints exist. Keeping them out of the
-# bootstrap compose avoids non-runnable placeholder containers.
+# Worker and web services will be added only after their runtime entrypoints and
+# Dockerfiles provide meaningful runnable behavior.
 
 volumes:
   postgres_data:
