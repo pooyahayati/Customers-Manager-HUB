@@ -6,7 +6,7 @@ on:
       - main
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   tenant-auth-postgres:
@@ -14,7 +14,6 @@ jobs:
     timeout-minutes: 25
     env:
       TEST_DATABASE_URL: postgresql+psycopg://cmh:change-me@127.0.0.1:5432/customers_manager_hub
-      RUN_DB_INTEGRATION: "1"
 
     steps:
       - name: Checkout branch
@@ -30,8 +29,36 @@ jobs:
       - name: Install uv
         run: python -m pip install uv==0.12.10
 
+      - name: Resolve lockfile
+        run: uv lock
+
+      - name: Commit lockfile when changed
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- uv.lock; then
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add uv.lock
+          git commit -m "chore(auth): lock httpx2 test dependency"
+          git push origin "HEAD:${{ github.head_ref }}"
+
       - name: Frozen dependency sync
         run: uv sync --frozen
+
+      - name: Ruff format check
+        run: uv run ruff format --check .
+
+      - name: Ruff lint
+        run: uv run ruff check .
+
+      - name: Pyright
+        run: uv run pyright
+
+      - name: Unit and non-database tests
+        run: uv run pytest
 
       - name: Start PostgreSQL
         run: docker compose -f compose.yaml up -d --build postgres
@@ -56,7 +83,7 @@ jobs:
         run: DATABASE_URL="$TEST_DATABASE_URL" uv run alembic check
 
       - name: Run PostgreSQL integration suite
-        run: DATABASE_URL="$TEST_DATABASE_URL" uv run pytest
+        run: RUN_DB_INTEGRATION=1 DATABASE_URL="$TEST_DATABASE_URL" uv run pytest
 
       - name: Build backend image
         run: docker compose -f compose.yaml build api
