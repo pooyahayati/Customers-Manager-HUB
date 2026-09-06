@@ -142,7 +142,7 @@ class MessageCreate(BaseModel):
 
     @model_validator(mode="after")
     def validate_text_message(self) -> Self:
-        if self.message_type is MessageType.TEXT and (self.text is None or not self.text.strip()):
+        if self.message_type == MessageType.TEXT and (self.text is None or not self.text.strip()):
             raise ValueError("Text messages require non-blank text")
         return self
 
@@ -198,6 +198,27 @@ def attachment_response(attachment: MessageAttachment) -> MessageAttachmentRespo
         storage_key=attachment.storage_key,
         metadata=attachment.media_metadata,
         created_at=attachment.created_at,
+    )
+
+
+def message_response(
+    message: Message,
+    attachments: list[MessageAttachment],
+) -> MessageResponse:
+    return MessageResponse(
+        id=message.id,
+        conversation_id=message.conversation_id,
+        external_identity_id=message.external_identity_id,
+        direction=MessageDirection(message.direction),
+        author_type=MessageAuthorType(message.author_type),
+        message_type=MessageType(message.message_type),
+        text=message.text,
+        external_message_id=message.external_message_id,
+        idempotency_key=message.idempotency_key,
+        metadata=message.external_metadata,
+        occurred_at=message.occurred_at,
+        created_at=message.created_at,
+        attachments=[attachment_response(attachment) for attachment in attachments],
     )
 
 
@@ -279,32 +300,32 @@ def raise_idempotency_conflict() -> None:
     )
 
 
-async def build_message_response(db: AsyncSession, message: Message) -> MessageResponse:
+async def load_attachments(
+    db: AsyncSession,
+    tenant_id: UUID,
+    message_ids: list[UUID],
+) -> dict[UUID, list[MessageAttachment]]:
+    grouped = {message_id: [] for message_id in message_ids}
+    if not message_ids:
+        return grouped
     attachments = (
         await db.scalars(
             select(MessageAttachment)
             .where(
-                MessageAttachment.tenant_id == message.tenant_id,
-                MessageAttachment.message_id == message.id,
+                MessageAttachment.tenant_id == tenant_id,
+                MessageAttachment.message_id.in_(message_ids),
             )
-            .order_by(MessageAttachment.created_at, MessageAttachment.id)
+            .order_by(MessageAttachment.message_id, MessageAttachment.created_at, MessageAttachment.id)
         )
     ).all()
-    return MessageResponse(
-        id=message.id,
-        conversation_id=message.conversation_id,
-        external_identity_id=message.external_identity_id,
-        direction=MessageDirection(message.direction),
-        author_type=MessageAuthorType(message.author_type),
-        message_type=MessageType(message.message_type),
-        text=message.text,
-        external_message_id=message.external_message_id,
-        idempotency_key=message.idempotency_key,
-        metadata=message.external_metadata,
-        occurred_at=message.occurred_at,
-        created_at=message.created_at,
-        attachments=[attachment_response(attachment) for attachment in attachments],
-    )
+    for attachment in attachments:
+        grouped[attachment.message_id].append(attachment)
+    return grouped
+
+
+async def build_message_response(db: AsyncSession, message: Message) -> MessageResponse:
+    attachments = await load_attachments(db, message.tenant_id, [message.id])
+    return message_response(message, attachments[message.id])
 
 
 @router.post("", response_model=ConversationResponse)
@@ -366,6 +387,7 @@ async def create_message(
 ) -> MessageResponse:
     require_tenant_role(context, WriteRole)
     conversation = await load_conversation(db, context.tenant.id, conversation_id)
+    resolved_conversation_id = conversation.id
     await validate_external_identity(
         db,
         context.tenant.id,
@@ -380,14 +402,14 @@ async def create_message(
             payload.idempotency_key,
         )
         if existing is not None:
-            if not message_identity_matches(existing, payload, conversation.id):
+            if not message_identity_matches(existing, payload, resolved_conversation_id):
                 raise_idempotency_conflict()
             return await build_message_response(db, existing)
 
     occurred_at = payload.occurred_at or datetime.now(UTC)
     message = Message(
         tenant_id=context.tenant.id,
-        conversation_id=conversation.id,
+        conversation_id=resolved_conversation_id,
         external_identity_id=payload.external_identity_id,
         direction=payload.direction.value,
         author_type=payload.author_type.value,
@@ -398,26 +420,26 @@ async def create_message(
         external_metadata=payload.metadata,
         occurred_at=occurred_at,
     )
-    db.add(message)
-    await db.flush()
-    for attachment_payload in payload.attachments:
-        db.add(
-            MessageAttachment(
-                tenant_id=context.tenant.id,
-                message_id=message.id,
-                media_type=attachment_payload.media_type,
-                mime_type=attachment_payload.mime_type,
-                filename=attachment_payload.filename,
-                size_bytes=attachment_payload.size_bytes,
-                external_media_id=attachment_payload.external_media_id,
-                storage_key=attachment_payload.storage_key,
-                media_metadata=attachment_payload.metadata,
-            )
-        )
-    if conversation.last_message_at is None or occurred_at > conversation.last_message_at:
-        conversation.last_message_at = occurred_at
 
     try:
+        db.add(message)
+        await db.flush()
+        for attachment_payload in payload.attachments:
+            db.add(
+                MessageAttachment(
+                    tenant_id=context.tenant.id,
+                    message_id=message.id,
+                    media_type=attachment_payload.media_type,
+                    mime_type=attachment_payload.mime_type,
+                    filename=attachment_payload.filename,
+                    size_bytes=attachment_payload.size_bytes,
+                    external_media_id=attachment_payload.external_media_id,
+                    storage_key=attachment_payload.storage_key,
+                    media_metadata=attachment_payload.metadata,
+                )
+            )
+        if conversation.last_message_at is None or occurred_at > conversation.last_message_at:
+            conversation.last_message_at = occurred_at
         await db.commit()
     except IntegrityError:
         await db.rollback()
@@ -430,7 +452,7 @@ async def create_message(
         )
         if raced_message is None:
             raise
-        if not message_identity_matches(raced_message, payload, conversation.id):
+        if not message_identity_matches(raced_message, payload, resolved_conversation_id):
             raise_idempotency_conflict()
         return await build_message_response(db, raced_message)
 
@@ -447,15 +469,22 @@ async def list_messages(
     limit: Annotated[int, Query(ge=1, le=200)] = 100,
 ) -> list[MessageResponse]:
     conversation = await load_conversation(db, context.tenant.id, conversation_id)
-    messages = (
-        await db.scalars(
-            select(Message)
-            .where(
-                Message.tenant_id == context.tenant.id,
-                Message.conversation_id == conversation.id,
+    messages = list(
+        (
+            await db.scalars(
+                select(Message)
+                .where(
+                    Message.tenant_id == context.tenant.id,
+                    Message.conversation_id == conversation.id,
+                )
+                .order_by(Message.occurred_at, Message.created_at, Message.id)
+                .limit(limit)
             )
-            .order_by(Message.occurred_at, Message.created_at, Message.id)
-            .limit(limit)
-        )
-    ).all()
-    return [await build_message_response(db, message) for message in messages]
+        ).all()
+    )
+    attachments = await load_attachments(
+        db,
+        context.tenant.id,
+        [message.id for message in messages],
+    )
+    return [message_response(message, attachments[message.id]) for message in messages]
