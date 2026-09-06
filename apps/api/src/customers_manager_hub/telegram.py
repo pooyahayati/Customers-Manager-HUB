@@ -381,7 +381,9 @@ class TelegramAdapter:
         try:
             occurred_at = datetime.fromtimestamp(envelope.result.date, tz=UTC)
         except (OSError, OverflowError, ValueError) as exc:
-            raise ChannelProviderError("telegram_invalid_message_timestamp", retryable=True) from exc
+            raise ChannelProviderError(
+                "telegram_invalid_message_timestamp", retryable=True
+            ) from exc
         return ChannelSendResult(
             external_message_id=str(envelope.result.message_id),
             occurred_at=occurred_at,

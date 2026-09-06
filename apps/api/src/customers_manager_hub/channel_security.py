@@ -35,7 +35,9 @@ def decode_encryption_key(settings: Settings) -> bytes:
         raise ChannelSecretConfigurationError("ENCRYPTION_KEY is required for channel credentials")
     encoded = settings.encryption_key.get_secret_value().strip()
     if not encoded or encoded == "change-me":
-        raise ChannelSecretConfigurationError("ENCRYPTION_KEY must be a generated 32-byte base64 key")
+        raise ChannelSecretConfigurationError(
+            "ENCRYPTION_KEY must be a generated 32-byte base64 key"
+        )
     try:
         key = base64.b64decode(encoded, altchars=b"-_", validate=True)
     except (binascii.Error, ValueError) as exc:

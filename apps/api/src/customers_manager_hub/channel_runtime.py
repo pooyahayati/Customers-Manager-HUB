@@ -330,7 +330,9 @@ async def mark_event_ignored(
     error_code: str,
 ) -> None:
     async with session_factory() as db:
-        event = await db.scalar(select(ChannelInboundEvent).where(ChannelInboundEvent.id == event_id))
+        event = await db.scalar(
+            select(ChannelInboundEvent).where(ChannelInboundEvent.id == event_id)
+        )
         if event is None or event.status == ChannelInboundEventStatus.PROCESSED.value:
             return
         event.status = ChannelInboundEventStatus.IGNORED.value
@@ -345,7 +347,9 @@ async def process_channel_event(
     event_id: UUID,
 ) -> None:
     async with session_factory() as db:
-        event = await db.scalar(select(ChannelInboundEvent).where(ChannelInboundEvent.id == event_id))
+        event = await db.scalar(
+            select(ChannelInboundEvent).where(ChannelInboundEvent.id == event_id)
+        )
         if event is None:
             raise ChannelRuntimeError("channel_event_missing")
         if event.status in {
@@ -354,7 +358,9 @@ async def process_channel_event(
         }:
             return
 
-        account = await load_channel_account(db, event.channel_account_id, tenant_id=event.tenant_id)
+        account = await load_channel_account(
+            db, event.channel_account_id, tenant_id=event.tenant_id
+        )
         if account is None:
             raise ChannelRuntimeError("channel_account_missing")
         if not account.is_active:

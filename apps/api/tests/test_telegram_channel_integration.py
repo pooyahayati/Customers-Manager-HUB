@@ -250,7 +250,9 @@ def create_channel(client: TestClient, tenant_id: UUID) -> UUID:
     return UUID(body["id"])
 
 
-def telegram_text_update(update_id: int, message_id: int, text_value: str = "Hello") -> dict[str, object]:
+def telegram_text_update(
+    update_id: int, message_id: int, text_value: str = "Hello"
+) -> dict[str, object]:
     return {
         "update_id": update_id,
         "message": {
@@ -341,7 +343,9 @@ def test_channel_configuration_encrypts_secrets_and_enforces_rbac_and_tenant_iso
         with Session(SYNC_ENGINE) as db:
             credentials = list(
                 db.scalars(
-                    select(ChannelCredential).where(ChannelCredential.channel_account_id == account_id)
+                    select(ChannelCredential).where(
+                        ChannelCredential.channel_account_id == account_id
+                    )
                 ).all()
             )
             assert len(credentials) == 2
@@ -370,9 +374,7 @@ def test_channel_configuration_encrypts_secrets_and_enforces_rbac_and_tenant_iso
     _, tenant_b_client = channel_client(adapter)
     try:
         login(tenant_b_client, "owner-b@example.com", "owner password tenant b")
-        cross_tenant = tenant_b_client.get(
-            f"/api/v1/tenants/{tenant_b}/channels/{account_id}"
-        )
+        cross_tenant = tenant_b_client.get(f"/api/v1/tenants/{tenant_b}/channels/{account_id}")
         assert cross_tenant.status_code == 404
     finally:
         close_channel_client(tenant_b_client)
@@ -392,7 +394,10 @@ def test_verified_text_webhook_persists_canonical_state_and_deduplicates() -> No
         account_id = create_channel(client, tenant_id)
         secret = stored_secret(account_id, ChannelCredentialKind.TELEGRAM_WEBHOOK_SECRET)
 
-        assert webhook(client, account_id, "wrong-secret", telegram_text_update(100, 10)).status_code == 401
+        assert (
+            webhook(client, account_id, "wrong-secret", telegram_text_update(100, 10)).status_code
+            == 401
+        )
         accepted = webhook(client, account_id, secret, telegram_text_update(100, 10))
         assert accepted.status_code == 200
         assert accepted.json() == {"ok": True}
@@ -557,7 +562,10 @@ def test_outbound_text_dispatch_is_role_scoped_and_idempotent() -> None:
         login(owner_client, "owner@example.com", "owner password outbound")
         account_id = create_channel(owner_client, tenant_id)
         secret = stored_secret(account_id, ChannelCredentialKind.TELEGRAM_WEBHOOK_SECRET)
-        assert webhook(owner_client, account_id, secret, telegram_text_update(301, 31)).status_code == 200
+        assert (
+            webhook(owner_client, account_id, secret, telegram_text_update(301, 31)).status_code
+            == 200
+        )
         with Session(SYNC_ENGINE) as db:
             binding = db.scalar(select(ConversationChannelBinding))
             assert binding is not None

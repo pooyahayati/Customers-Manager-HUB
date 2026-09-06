@@ -72,9 +72,7 @@ class TelegramChannelCreate(BaseModel):
 
     @field_validator("enabled_inbound_types")
     @classmethod
-    def validate_inbound_types(
-        cls, value: list[ChannelCapability]
-    ) -> list[ChannelCapability]:
+    def validate_inbound_types(cls, value: list[ChannelCapability]) -> list[ChannelCapability]:
         if any(capability not in _INBOUND_CAPABILITIES for capability in value):
             raise ValueError("Only text and voice can be configured as inbound capabilities")
         if len(value) != len(set(value)):
@@ -175,7 +173,9 @@ async def _load_configured_credentials(
     tenant_id: UUID,
     account_ids: list[UUID],
 ) -> dict[UUID, set[ChannelCredentialKind]]:
-    result: dict[UUID, set[ChannelCredentialKind]] = {account_id: set() for account_id in account_ids}
+    result: dict[UUID, set[ChannelCredentialKind]] = {
+        account_id: set() for account_id in account_ids
+    }
     if not account_ids:
         return result
     rows = (
@@ -217,14 +217,20 @@ def _channel_response(
 
 
 def _raise_provider_error(exc: ChannelProviderError) -> None:
-    http_status = status.HTTP_503_SERVICE_UNAVAILABLE if exc.retryable else status.HTTP_400_BAD_REQUEST
+    http_status = (
+        status.HTTP_503_SERVICE_UNAVAILABLE if exc.retryable else status.HTTP_400_BAD_REQUEST
+    )
     raise HTTPException(status_code=http_status, detail="Telegram request failed") from exc
 
 
 def _raise_runtime_error(exc: ChannelRuntimeError) -> None:
     if "idempotency_conflict" in exc.code:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Idempotency conflict") from exc
-    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Channel resource not found") from exc
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="Idempotency conflict"
+        ) from exc
+    raise HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND, detail="Channel resource not found"
+    ) from exc
 
 
 @router.post("/telegram", response_model=ChannelAccountResponse)
@@ -458,9 +464,7 @@ async def register_channel_webhook(
         webhook_secret = await load_channel_secret(
             db, settings, account, ChannelCredentialKind.TELEGRAM_WEBHOOK_SECRET
         )
-        webhook_url = (
-            f"{settings.telegram_webhook_base_url}/api/v1/webhooks/telegram/{account.id}"
-        )
+        webhook_url = f"{settings.telegram_webhook_base_url}/api/v1/webhooks/telegram/{account.id}"
         await registry.get(ChannelType.TELEGRAM).register_webhook(
             bot_token,
             webhook_url=webhook_url,
