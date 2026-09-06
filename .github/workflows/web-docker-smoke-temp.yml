@@ -1,0 +1,39 @@
+name: Web Docker Smoke Temporary
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  web-docker-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.head_ref }}
+
+      - name: Build web image
+        run: docker build -f apps/web/Dockerfile -t customers-manager-hub-web:smoke .
+
+      - name: Start web container
+        run: docker run -d --name cmh-web-smoke -p 3000:3000 customers-manager-hub-web:smoke
+
+      - name: Verify web runtime
+        run: |
+          timeout 60 bash -c 'until curl --fail --silent http://127.0.0.1:3000/ >/dev/null; do sleep 2; done'
+          test "$(docker exec cmh-web-smoke id -u)" != "0"
+
+      - name: Logs on failure
+        if: failure()
+        run: docker logs cmh-web-smoke || true
+
+      - name: Cleanup
+        if: always()
+        run: docker rm -f cmh-web-smoke || true
