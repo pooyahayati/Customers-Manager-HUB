@@ -69,7 +69,7 @@ TEST_SETTINGS = Settings(
     telegram_webhook_base_url="https://channels.example.test",
 )
 SYNC_ENGINE = create_engine(TEST_SETTINGS.sqlalchemy_database_url)
-SYNC_REDIS = Redis.from_url(REDIS_URL, decode_responses=True)
+SYNC_REDIS = Redis.from_url(REDIS_URL, decode_responses=True)  # pyright: ignore[reportUnknownMemberType]
 
 pytestmark = pytest.mark.skipif(
     not RUN_DB_INTEGRATION,

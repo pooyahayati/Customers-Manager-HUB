@@ -20,7 +20,7 @@ class ChannelJob:
 
 
 def create_channel_redis(settings: Settings) -> Redis:
-    return Redis.from_url(settings.redis_url, decode_responses=True)
+    return Redis.from_url(settings.redis_url, decode_responses=True)  # pyright: ignore[reportUnknownMemberType]
 
 
 class ChannelJobQueue:

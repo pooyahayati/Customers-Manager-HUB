@@ -1,5 +1,5 @@
 import secrets
-from typing import Annotated, cast
+from typing import Annotated, Never, cast
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
@@ -216,14 +216,14 @@ def _channel_response(
     )
 
 
-def _raise_provider_error(exc: ChannelProviderError) -> None:
+def _raise_provider_error(exc: ChannelProviderError) -> Never:
     http_status = (
         status.HTTP_503_SERVICE_UNAVAILABLE if exc.retryable else status.HTTP_400_BAD_REQUEST
     )
     raise HTTPException(status_code=http_status, detail="Telegram request failed") from exc
 
 
-def _raise_runtime_error(exc: ChannelRuntimeError) -> None:
+def _raise_runtime_error(exc: ChannelRuntimeError) -> Never:
     if "idempotency_conflict" in exc.code:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail="Idempotency conflict"

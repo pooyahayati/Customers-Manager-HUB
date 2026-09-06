@@ -1,5 +1,6 @@
 import asyncio
 import json
+from typing import cast
 from uuid import uuid4
 
 import httpx2
@@ -101,7 +102,9 @@ def test_telegram_adapter_contracts() -> None:
 
     def handler(request: httpx2.Request) -> httpx2.Response:
         method = request.url.path.rsplit("/", 1)[-1]
-        payload = json.loads(request.content.decode()) if request.content else {}
+        payload = (
+            cast(dict[str, object], json.loads(request.content.decode())) if request.content else {}
+        )
         seen.append((method, payload))
         if method == "getMe":
             return httpx2.Response(

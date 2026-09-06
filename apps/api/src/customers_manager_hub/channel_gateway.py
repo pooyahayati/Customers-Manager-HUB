@@ -14,6 +14,10 @@ class ChannelProviderError(RuntimeError):
         self.retryable = retryable
 
 
+def empty_channel_metadata() -> dict[str, object]:
+    return {}
+
+
 @dataclass(frozen=True, slots=True)
 class CanonicalAttachment:
     media_type: MessageType
@@ -21,7 +25,7 @@ class CanonicalAttachment:
     filename: str | None = None
     size_bytes: int | None = None
     external_media_id: str | None = None
-    metadata: dict[str, object] = field(default_factory=dict)
+    metadata: dict[str, object] = field(default_factory=empty_channel_metadata)
 
 
 @dataclass(frozen=True, slots=True)
@@ -38,7 +42,7 @@ class CanonicalInboundMessage:
     text: str | None
     occurred_at: datetime
     attachments: tuple[CanonicalAttachment, ...] = ()
-    metadata: dict[str, object] = field(default_factory=dict)
+    metadata: dict[str, object] = field(default_factory=empty_channel_metadata)
 
 
 @dataclass(frozen=True, slots=True)
