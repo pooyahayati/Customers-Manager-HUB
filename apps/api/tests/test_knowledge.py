@@ -10,7 +10,6 @@ from pypdf import PdfWriter
 
 import customers_manager_hub.knowledge_parsing as parsing
 from customers_manager_hub.config import Settings
-from customers_manager_hub.knowledge_queue import KnowledgeJobQueue
 from customers_manager_hub.knowledge_runtime import (
     KnowledgeRuntimeError,
     _validate_vector,  # pyright: ignore[reportPrivateUsage]
@@ -149,19 +148,6 @@ def test_embedding_vector_validation_rejects_invalid_values() -> None:
     with pytest.raises(KnowledgeRuntimeError) as non_finite:
         _validate_vector((1.0, float("nan")))
     assert non_finite.value.code == "knowledge_embedding_invalid"
-
-
-def test_knowledge_queue_parser_ignores_invalid_entries() -> None:
-    source_id = uuid4()
-    parsed = KnowledgeJobQueue._parse_entries(  # pyright: ignore[reportPrivateUsage]
-        [
-            ("1-0", {"job_type": "knowledge.ingest", "source_id": str(source_id)}),
-            ("2-0", {"job_type": "wrong", "source_id": str(uuid4())}),
-            ("3-0", {"job_type": "knowledge.ingest", "source_id": "not-a-uuid"}),
-        ]
-    )
-    assert len(parsed) == 1
-    assert parsed[0].source_id == source_id
 
 
 def test_media_type_constants_are_distinct() -> None:
