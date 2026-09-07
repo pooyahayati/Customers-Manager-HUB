@@ -30,6 +30,11 @@ from customers_manager_hub.knowledge_storage import ObjectStorage, build_object_
 from customers_manager_hub.logging_config import configure_logging
 from customers_manager_hub.telegram import TelegramAdapter
 from customers_manager_hub.tool_runtime import ToolRuntime, build_tool_adapter_registry
+from customers_manager_hub.voice_runtime import (
+    TelegramVoiceMediaDownloader,
+    VoiceTranscriptionError,
+    process_voice_transcription,
+)
 from customers_manager_hub.website import WebsiteAdapter
 
 logger = logging.getLogger(__name__)
@@ -54,6 +59,7 @@ async def process_job(
     session_factory: AsyncSessionFactory,
     tool_runtime: ToolRuntime | None = None,
     knowledge_runtime: KnowledgeRuntime | None = None,
+    voice_downloader: TelegramVoiceMediaDownloader | None = None,
 ) -> None:
     try:
         await process_channel_event(session_factory, channel_registry, settings, job.event_id)
@@ -75,6 +81,34 @@ async def process_job(
         logger.exception("channel job failed", extra={"event_id": str(job.event_id)})
         return
     else:
+        if voice_downloader is not None:
+            try:
+                await process_voice_transcription(
+                    session_factory,
+                    ai_gateway,
+                    settings,
+                    voice_downloader,
+                    job.event_id,
+                )
+            except VoiceTranscriptionError as exc:
+                log = logger.warning if exc.retryable else logger.error
+                log(
+                    "voice transcription job failed",
+                    extra={
+                        "event_id": str(job.event_id),
+                        "error_code": exc.code,
+                        "retryable": exc.retryable,
+                    },
+                )
+                if exc.retryable:
+                    return
+                await queue.acknowledge(job.stream_id)
+                return
+            except Exception:
+                logger.exception(
+                    "voice transcription job failed", extra={"event_id": str(job.event_id)}
+                )
+                return
         try:
             await process_agent_event(
                 session_factory,
@@ -174,6 +208,7 @@ async def run_worker_async(settings: Settings, stop_event: asyncio.Event | None 
             )
             knowledge_runtime = KnowledgeRuntime(session_factory, ai_gateway)
             knowledge_storage = build_object_storage(settings)
+            voice_downloader = TelegramVoiceMediaDownloader(external_http_client)
             logger.info("worker started", extra={"consumer": consumer_name})
             last_reclaim = 0.0
             while not resolved_stop_event.is_set():
@@ -212,6 +247,7 @@ async def run_worker_async(settings: Settings, stop_event: asyncio.Event | None 
                         session_factory,
                         tool_runtime,
                         knowledge_runtime,
+                        voice_downloader,
                     )
     finally:
         await redis_client.aclose()

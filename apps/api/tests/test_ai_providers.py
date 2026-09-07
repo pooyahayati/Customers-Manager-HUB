@@ -1,5 +1,4 @@
 import asyncio
-import base64
 import json
 from typing import cast
 
@@ -183,10 +182,79 @@ def test_openai_embedding_and_transcription_contracts() -> None:
     asyncio.run(run())
 
 
-def test_gemini_generation_embedding_and_inline_transcription_contracts() -> None:
-    encoded_audio = base64.b64encode(b"test-audio").decode("ascii")
+def test_gemini_generation_embedding_and_dedicated_transcription_contracts() -> None:
+    seen_paths: list[str] = []
 
     def handler(request: httpx2.Request) -> httpx2.Response:
+        seen_paths.append(request.url.path)
+        if request.url.path == "/upload/v1beta/files":
+            assert request.headers["x-goog-api-key"] == "test-gemini-key"
+            assert request.headers["x-goog-upload-protocol"] == "resumable"
+            assert request.headers["x-goog-upload-header-content-type"] == "audio/ogg"
+            body = json_body(request)
+            file_metadata = cast(dict[str, object], body["file"])
+            assert file_metadata["display_name"] == "voice.ogg"
+            return httpx2.Response(
+                200,
+                request=request,
+                headers={
+                    "x-goog-upload-url": "https://generativelanguage.googleapis.com/upload/session/test"
+                },
+            )
+        if request.url.path == "/upload/session/test":
+            assert request.content == b"test-audio"
+            assert request.headers["x-goog-upload-command"] == "upload, finalize"
+            return httpx2.Response(
+                200,
+                request=request,
+                json={
+                    "file": {
+                        "name": "files/voice-test",
+                        "uri": "https://generativelanguage.googleapis.com/v1beta/files/voice-test",
+                        "mimeType": "audio/ogg",
+                    }
+                },
+            )
+        if request.url.path == "/v1beta/interactions":
+            assert request.headers["x-goog-api-key"] == "test-gemini-key"
+            body = json_body(request)
+            assert body["model"] == "gemini-3.5-transcribe"
+            inputs = cast(list[object], body["input"])
+            audio_input = cast(dict[str, object], inputs[0])
+            assert audio_input == {
+                "type": "audio",
+                "uri": "https://generativelanguage.googleapis.com/v1beta/files/voice-test",
+                "mime_type": "audio/ogg",
+            }
+            generation_config = cast(dict[str, object], body["generation_config"])
+            transcription_config = cast(
+                dict[str, object], generation_config["transcription_config"]
+            )
+            assert transcription_config["language_codes"] == []
+            assert transcription_config["mode"] == {"type": "verbatim"}
+            return httpx2.Response(
+                200,
+                request=request,
+                json={
+                    "id": "interaction-voice",
+                    "status": "completed",
+                    "steps": [
+                        {
+                            "type": "model_output",
+                            "content": [{"type": "text", "text": "transcribed audio"}],
+                        }
+                    ],
+                    "usage": {
+                        "total_input_tokens": 12,
+                        "total_output_tokens": 3,
+                        "total_tokens": 15,
+                    },
+                },
+            )
+        if request.method == "DELETE" and request.url.path == "/v1beta/files/voice-test":
+            assert request.headers["x-goog-api-key"] == "test-gemini-key"
+            return httpx2.Response(200, request=request, json={})
+
         assert request.headers["x-goog-api-key"] == "test-gemini-key"
         body = json_body(request)
         if request.url.path.endswith(":batchEmbedContents"):
@@ -200,25 +268,18 @@ def test_gemini_generation_embedding_and_inline_transcription_contracts() -> Non
                     "usageMetadata": {"promptTokenCount": 2, "totalTokenCount": 2},
                 },
             )
-
         contents = cast(list[object], body["contents"])
         first_content = cast(dict[str, object], contents[0])
         parts = cast(list[object], first_content["parts"])
-        if len(parts) == 2:
-            audio_part = cast(dict[str, object], parts[1])
-            inline_data = cast(dict[str, object], audio_part["inlineData"])
-            assert inline_data["data"] == encoded_audio
-            response_text = "transcribed audio"
-        else:
-            generation_config = cast(dict[str, object], body["generationConfig"])
-            assert "responseFormat" in generation_config
-            response_text = '{"intent":"support"}'
+        assert len(parts) == 1
+        generation_config = cast(dict[str, object], body["generationConfig"])
+        assert "responseFormat" in generation_config
         return httpx2.Response(
             200,
             request=request,
             headers={"x-request-id": "gemini-request"},
             json={
-                "candidates": [{"content": {"parts": [{"text": response_text}]}}],
+                "candidates": [{"content": {"parts": [{"text": '{"intent":"support"}'}]}}],
                 "usageMetadata": {
                     "promptTokenCount": 4,
                     "candidatesTokenCount": 2,
@@ -251,15 +312,18 @@ def test_gemini_generation_embedding_and_inline_transcription_contracts() -> Non
             assert embeddings.embeddings == ((0.5, 0.6), (0.7, 0.8))
 
             transcript = await adapter.transcribe(
-                "test-gemini-transcription",
+                "gemini-3.5-transcribe",
                 TranscriptionRequest(
                     audio=b"test-audio",
                     filename="voice.ogg",
                     mime_type="audio/ogg",
                 ),
-                {},
+                {"language_codes": [], "mode": "verbatim"},
                 5,
             )
             assert transcript.text == "transcribed audio"
+            assert transcript.provider_request_id == "interaction-voice"
+            assert transcript.usage.total_tokens == 15
+            assert seen_paths[-1] == "/v1beta/files/voice-test"
 
     asyncio.run(run())

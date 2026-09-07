@@ -1,4 +1,3 @@
-import base64
 import json
 from typing import cast
 from urllib.parse import quote
@@ -19,10 +18,10 @@ from customers_manager_hub.ai_gateway import (
     TranscriptionResult,
 )
 from customers_manager_hub.config import Settings
+from customers_manager_hub.gemini_transcription import transcribe_with_gemini
 
 OPENAI_BASE_URL = "https://api.openai.com/v1"
 GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
-GEMINI_INLINE_AUDIO_LIMIT_BYTES = 20 * 1024 * 1024
 LIVE_AI_PROVIDER_KEYS = frozenset({"openai", "gemini"})
 
 
@@ -510,42 +509,13 @@ class GeminiAdapter:
         parameters: dict[str, object],
         timeout_seconds: int,
     ) -> TranscriptionResult:
-        if len(request.audio) > GEMINI_INLINE_AUDIO_LIMIT_BYTES:
-            raise AIProviderError("gemini_inline_audio_too_large", retryable=False)
-        prompt = request.prompt or "Transcribe this audio accurately. Return only the transcript."
-        payload: dict[str, object] = {
-            "contents": [
-                {
-                    "role": "user",
-                    "parts": [
-                        {"text": prompt},
-                        {
-                            "inlineData": {
-                                "mimeType": request.mime_type,
-                                "data": base64.b64encode(request.audio).decode("ascii"),
-                            }
-                        },
-                    ],
-                }
-            ]
-        }
-        if parameters:
-            payload["generationConfig"] = dict(parameters)
-        raw_response, raw_payload = await _post_json(
+        return await transcribe_with_gemini(
             self._client,
-            provider=self.key,
-            url=f"{GEMINI_BASE_URL}/models/{_model_path(model_id)}:generateContent",
-            headers=self._headers(),
-            payload=payload,
-            timeout_seconds=timeout_seconds,
-        )
-        parsed = _validate_provider_response(_GeminiResponse, raw_payload, self.key)
-        return TranscriptionResult(
-            provider=self.key,
-            model_id=model_id,
-            text=_gemini_text(parsed),
-            usage=_usage_from_gemini(parsed.usage_metadata),
-            provider_request_id=raw_response.headers.get("x-request-id"),
+            self._api_key,
+            model_id,
+            request,
+            parameters,
+            timeout_seconds,
         )
 
 
