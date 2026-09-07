@@ -61,6 +61,22 @@ async def dependencies_ready(settings: Settings) -> bool:
     return postgres_ok and redis_ok
 
 
+def _channel_job_log(job: ChannelJob) -> dict[str, object]:
+    return {
+        "event_id": str(job.event_id),
+        "stream_id": job.stream_id,
+        "attempt": job.attempt,
+    }
+
+
+def _knowledge_job_log(job: KnowledgeJob) -> dict[str, object]:
+    return {
+        "source_id": str(job.source_id),
+        "stream_id": job.stream_id,
+        "attempt": job.attempt,
+    }
+
+
 async def process_job(
     job: ChannelJob,
     queue: ChannelJobQueue,
@@ -80,7 +96,7 @@ async def process_job(
         except PolicyRuntimeError as exc:
             logger.error(
                 "message policy evaluation failed",
-                extra={"event_id": str(job.event_id), "error_code": exc.code},
+                extra={**_channel_job_log(job), "error_code": exc.code},
             )
             return
         if message_decision.action == PolicyDecisionAction.DENY:
@@ -95,7 +111,7 @@ async def process_job(
     except ChannelProviderError as exc:
         logger.warning(
             "channel provider job failed",
-            extra={"event_id": str(job.event_id), "error_code": exc.code},
+            extra={**_channel_job_log(job), "error_code": exc.code, "retryable": exc.retryable},
         )
         if exc.retryable:
             return
@@ -103,11 +119,11 @@ async def process_job(
     except ChannelRuntimeError as exc:
         logger.error(
             "channel runtime job rejected",
-            extra={"event_id": str(job.event_id), "error_code": exc.code},
+            extra={**_channel_job_log(job), "error_code": exc.code},
         )
         await mark_event_ignored(session_factory, job.event_id, exc.code)
     except Exception:
-        logger.exception("channel job failed", extra={"event_id": str(job.event_id)})
+        logger.exception("channel job failed", extra=_channel_job_log(job))
         return
     else:
         if voice_downloader is not None:
@@ -124,7 +140,7 @@ async def process_job(
                 log(
                     "voice transcription job failed",
                     extra={
-                        "event_id": str(job.event_id),
+                        **_channel_job_log(job),
                         "error_code": exc.code,
                         "retryable": exc.retryable,
                     },
@@ -134,9 +150,7 @@ async def process_job(
                 await queue.acknowledge(job.stream_id)
                 return
             except Exception:
-                logger.exception(
-                    "voice transcription job failed", extra={"event_id": str(job.event_id)}
-                )
+                logger.exception("voice transcription job failed", extra=_channel_job_log(job))
                 return
         try:
             if policy_engine is None:
@@ -160,7 +174,7 @@ async def process_job(
         except (HandoffRuntimeError, PolicyRuntimeError) as exc:
             logger.error(
                 "policy or handoff evaluation failed",
-                extra={"event_id": str(job.event_id), "error_code": exc.code},
+                extra={**_channel_job_log(job), "error_code": exc.code},
             )
             return
 
@@ -180,7 +194,7 @@ async def process_job(
                 log(
                     "agent job failed",
                     extra={
-                        "event_id": str(job.event_id),
+                        **_channel_job_log(job),
                         "error_code": exc.code,
                         "retryable": exc.retryable,
                     },
@@ -188,7 +202,7 @@ async def process_job(
                 if exc.retryable:
                     return
             except Exception:
-                logger.exception("agent job failed", extra={"event_id": str(job.event_id)})
+                logger.exception("agent job failed", extra=_channel_job_log(job))
                 return
 
         try:
@@ -202,16 +216,13 @@ async def process_job(
             log(
                 "customer memory extraction failed",
                 extra={
-                    "event_id": str(job.event_id),
+                    **_channel_job_log(job),
                     "error_code": exc.code,
                     "retryable": exc.retryable,
                 },
             )
         except Exception:
-            logger.exception(
-                "customer memory extraction failed",
-                extra={"event_id": str(job.event_id)},
-            )
+            logger.exception("customer memory extraction failed", extra=_channel_job_log(job))
     await queue.acknowledge(job.stream_id)
 
 
@@ -229,7 +240,7 @@ async def process_knowledge_job(
         log(
             "knowledge ingestion job failed",
             extra={
-                "source_id": str(job.source_id),
+                **_knowledge_job_log(job),
                 "error_code": exc.code,
                 "retryable": exc.retryable,
             },
@@ -237,7 +248,7 @@ async def process_knowledge_job(
         if exc.retryable:
             return
     except Exception:
-        logger.exception("knowledge ingestion job failed", extra={"source_id": str(job.source_id)})
+        logger.exception("knowledge ingestion job failed", extra=_knowledge_job_log(job))
         return
     await queue.acknowledge(job.stream_id)
 
@@ -249,8 +260,14 @@ async def run_worker_async(settings: Settings, stop_event: asyncio.Event | None 
 
     engine, session_factory = create_database(settings)
     redis_client = create_channel_redis(settings)
-    channel_queue = ChannelJobQueue(redis_client)
-    knowledge_queue = KnowledgeJobQueue(redis_client)
+    channel_queue = ChannelJobQueue(
+        redis_client,
+        max_delivery_attempts=settings.worker_max_delivery_attempts,
+    )
+    knowledge_queue = KnowledgeJobQueue(
+        redis_client,
+        max_delivery_attempts=settings.worker_max_delivery_attempts,
+    )
     await channel_queue.ensure_group()
     await knowledge_queue.ensure_group()
     consumer_name = f"{socket.gethostname()}-{os.getpid()}"
