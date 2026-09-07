@@ -1,3 +1,6 @@
+import base64
+import binascii
+import ipaddress
 from functools import lru_cache
 from typing import Literal, Self
 from urllib.parse import urlsplit
@@ -39,6 +42,14 @@ class Settings(BaseSettings):
     s3_secret_access_key: SecretStr | None = None
     s3_force_path_style: bool = True
 
+    rate_limit_enabled: bool = True
+    rate_limit_window_seconds: int = Field(default=60, ge=10, le=3600)
+    rate_limit_login_requests: int = Field(default=10, ge=1, le=10_000)
+    rate_limit_public_requests: int = Field(default=120, ge=1, le=100_000)
+    rate_limit_webhook_requests: int = Field(default=180, ge=1, le=100_000)
+    trusted_proxy_cidrs: str = ""
+    worker_max_delivery_attempts: int = Field(default=5, ge=1, le=50)
+
     @field_validator("app_log_level")
     @classmethod
     def validate_log_level(cls, value: str) -> str:
@@ -61,6 +72,39 @@ class Settings(BaseSettings):
         if not value.startswith(("redis://", "rediss://")):
             raise ValueError("REDIS_URL must use redis:// or rediss://")
         return value
+
+    @field_validator("encryption_key")
+    @classmethod
+    def validate_encryption_key(cls, value: SecretStr | None) -> SecretStr | None:
+        if value is None:
+            return None
+        encoded = value.get_secret_value().strip()
+        if not encoded or encoded == "change-me":
+            raise ValueError("ENCRYPTION_KEY must be a generated 32-byte base64 key")
+        try:
+            decoded = base64.b64decode(encoded, altchars=b"-_", validate=True)
+        except (binascii.Error, ValueError) as exc:
+            raise ValueError("ENCRYPTION_KEY must be valid URL-safe base64") from exc
+        if len(decoded) != 32:
+            raise ValueError("ENCRYPTION_KEY must decode to exactly 32 bytes")
+        return SecretStr(encoded)
+
+    @field_validator("trusted_proxy_cidrs")
+    @classmethod
+    def validate_trusted_proxy_cidrs(cls, value: str) -> str:
+        normalized: list[str] = []
+        for item in value.split(","):
+            candidate = item.strip()
+            if not candidate:
+                continue
+            try:
+                network = ipaddress.ip_network(candidate, strict=False)
+            except ValueError as exc:
+                raise ValueError("TRUSTED_PROXY_CIDRS contains an invalid CIDR") from exc
+            rendered = str(network)
+            if rendered not in normalized:
+                normalized.append(rendered)
+        return ",".join(normalized)
 
     @field_validator("telegram_webhook_base_url")
     @classmethod
@@ -114,18 +158,18 @@ class Settings(BaseSettings):
     def reject_insecure_production_defaults(self) -> Self:
         if self.app_env == "production" and "change-me" in self.database_url:
             raise ValueError("Production DATABASE_URL must not use bootstrap credentials")
+        if self.app_env in {"staging", "production"} and self.app_debug:
+            raise ValueError("Staging/production APP_DEBUG must be false")
+        if self.app_env in {"staging", "production"} and self.encryption_key is None:
+            raise ValueError("Staging/production ENCRYPTION_KEY is required")
+        if self.app_env == "production" and not self.rate_limit_enabled:
+            raise ValueError("Production RATE_LIMIT_ENABLED must be true")
         if (
             self.app_env in {"staging", "production"}
             and self.telegram_webhook_base_url is not None
             and not self.telegram_webhook_base_url.startswith("https://")
         ):
             raise ValueError("Staging/production Telegram webhook base URL must use HTTPS")
-        if (
-            self.app_env in {"staging", "production"}
-            and self.encryption_key is not None
-            and self.encryption_key.get_secret_value() == "change-me"
-        ):
-            raise ValueError("Staging/production ENCRYPTION_KEY must not use a placeholder")
         if (self.s3_access_key_id is None) != (self.s3_secret_access_key is None):
             raise ValueError("S3 access key ID and secret access key must be configured together")
         if self.s3_endpoint_url is not None and self.s3_access_key_id is None:
@@ -136,6 +180,14 @@ class Settings(BaseSettings):
             and not self.s3_endpoint_url.startswith("https://")
         ):
             raise ValueError("Staging/production S3 endpoint must use HTTPS")
+        if self.app_env in {"staging", "production"} and self.s3_access_key_id is not None:
+            access_key = self.s3_access_key_id.get_secret_value().strip()
+            secret_key = self.s3_secret_access_key.get_secret_value().strip() if self.s3_secret_access_key else ""
+            if access_key in {"cmh-dev-access", "change-me"} or secret_key in {
+                "cmh-dev-secret",
+                "change-me",
+            }:
+                raise ValueError("Staging/production S3 credentials must not use development defaults")
         return self
 
     @property
