@@ -24,6 +24,7 @@ from customers_manager_hub.knowledge import router as knowledge_router
 from customers_manager_hub.knowledge_queue import KnowledgeJobQueue
 from customers_manager_hub.knowledge_storage import build_object_storage
 from customers_manager_hub.logging_config import configure_logging
+from customers_manager_hub.memory import router as memory_router
 from customers_manager_hub.telegram import TelegramAdapter
 from customers_manager_hub.tenants import router as tenants_router
 from customers_manager_hub.tools import router as tools_router
@@ -82,6 +83,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.include_router(website_admin_router)
     application.include_router(channels_router)
     application.include_router(contacts_router)
+    application.include_router(memory_router)
     application.include_router(conversations_router)
     application.include_router(handoff_router)
     application.include_router(channel_webhooks_router)

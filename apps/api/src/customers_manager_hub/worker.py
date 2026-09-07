@@ -29,6 +29,10 @@ from customers_manager_hub.knowledge_runtime import (
 )
 from customers_manager_hub.knowledge_storage import ObjectStorage, build_object_storage
 from customers_manager_hub.logging_config import configure_logging
+from customers_manager_hub.memory_runtime import (
+    MemoryRuntimeError,
+    extract_customer_memory_from_event,
+)
 from customers_manager_hub.telegram import TelegramAdapter
 from customers_manager_hub.tool_runtime import ToolRuntime, build_tool_adapter_registry
 from customers_manager_hub.voice_runtime import (
@@ -118,34 +122,55 @@ async def process_job(
                 extra={"event_id": str(job.event_id), "error_code": exc.code},
             )
             return
-        if handoff_id is not None:
-            await queue.acknowledge(job.stream_id)
-            return
+
+        if handoff_id is None:
+            try:
+                await process_agent_event(
+                    session_factory,
+                    ai_gateway,
+                    channel_registry,
+                    settings,
+                    job.event_id,
+                    tool_runtime=tool_runtime,
+                    knowledge_runtime=knowledge_runtime,
+                )
+            except AgentRuntimeError as exc:
+                log = logger.warning if exc.retryable else logger.error
+                log(
+                    "agent job failed",
+                    extra={
+                        "event_id": str(job.event_id),
+                        "error_code": exc.code,
+                        "retryable": exc.retryable,
+                    },
+                )
+                if exc.retryable:
+                    return
+            except Exception:
+                logger.exception("agent job failed", extra={"event_id": str(job.event_id)})
+                return
+
         try:
-            await process_agent_event(
+            await extract_customer_memory_from_event(
                 session_factory,
                 ai_gateway,
-                channel_registry,
-                settings,
                 job.event_id,
-                tool_runtime=tool_runtime,
-                knowledge_runtime=knowledge_runtime,
             )
-        except AgentRuntimeError as exc:
+        except MemoryRuntimeError as exc:
             log = logger.warning if exc.retryable else logger.error
             log(
-                "agent job failed",
+                "customer memory extraction failed",
                 extra={
                     "event_id": str(job.event_id),
                     "error_code": exc.code,
                     "retryable": exc.retryable,
                 },
             )
-            if exc.retryable:
-                return
         except Exception:
-            logger.exception("agent job failed", extra={"event_id": str(job.event_id)})
-            return
+            logger.exception(
+                "customer memory extraction failed",
+                extra={"event_id": str(job.event_id)},
+            )
     await queue.acknowledge(job.stream_id)
 
 
