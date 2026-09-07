@@ -96,3 +96,26 @@ jobs:
           uv run pytest
           apps/api/tests/test_telegram_channel_integration.py
           apps/api/tests/test_agent_prompt_integration.py
+
+      - name: Export validated implementation
+        uses: actions/upload-artifact@v4
+        with:
+          name: m7-validated-files
+          if-no-files-found: error
+          path: |
+            specs/MILESTONE-7-WEBSITE-CHAT.md
+            docs/adr/ADR-013-website-chat-public-session-and-polling-transport.md
+            docs/adr/README.md
+            apps/api/migrations/versions/0006_website_chat_channel.py
+            apps/api/src/customers_manager_hub/channel_models.py
+            apps/api/src/customers_manager_hub/channels.py
+            apps/api/src/customers_manager_hub/channel_runtime.py
+            apps/api/src/customers_manager_hub/agent_runtime.py
+            apps/api/src/customers_manager_hub/main.py
+            apps/api/src/customers_manager_hub/worker.py
+            apps/api/src/customers_manager_hub/website.py
+            apps/api/src/customers_manager_hub/website_chat.py
+            apps/api/tests/test_website.py
+            apps/api/tests/test_website_chat_integration.py
+            apps/webchat/README.md
+            apps/webchat/widget.js
