@@ -31,12 +31,10 @@ jobs:
 
           api = Path('apps/api/src/customers_manager_hub/handoff.py')
           text = api.read_text()
-
           reply_marker = 'async def send_operator_reply('
           assist_marker = 'async def generate_operator_assist('
           if reply_marker not in text or assist_marker not in text:
               raise SystemExit('handoff function markers missing')
-
           before_assist, assist_tail = text.split(assist_marker, 1)
           reply_head, reply_tail = before_assist.split(reply_marker, 1)
           reply_tail = reply_tail.replace(
@@ -50,6 +48,14 @@ jobs:
               1,
           )
           api.write_text(reply_head + reply_marker + reply_tail + assist_marker + assist_tail)
+
+          runtime = Path('apps/api/src/customers_manager_hub/handoff_runtime.py')
+          text = runtime.read_text()
+          old = '''        if isinstance(item, str) and item.strip()\n'''
+          new = '''        if item.strip()\n'''
+          if old not in text:
+              raise SystemExit('handoff keyword typing anchor missing')
+          runtime.write_text(text.replace(old, new, 1))
           PY
       - run: uv sync --frozen
       - name: Format staged M11 source
