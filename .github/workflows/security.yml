@@ -1,0 +1,92 @@
+name: Security
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: "17 3 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  dependency-audit:
+    name: Dependency audit
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version-file: .python-version
+      - uses: astral-sh/setup-uv@v6
+      - name: Export locked Python runtime dependencies
+        run: uv export --frozen --no-dev --no-emit-project --format requirements-txt > /tmp/requirements.txt
+      - name: Audit Python dependencies
+        run: uv tool run --from pip-audit==2.10.1 pip-audit --strict --requirement /tmp/requirements.txt
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Audit production Node dependencies
+        run: pnpm audit --prod --audit-level high
+
+  repository-secret-scan:
+    name: Repository secret scan
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Trivy secret scan
+        run: >-
+          docker run --rm
+          -v "$PWD:/workspace"
+          aquasec/trivy:0.74.0
+          fs --scanners secret --exit-code 1 --skip-dirs .git /workspace
+
+  container-scan:
+    name: Container vulnerability scan
+    runs-on: ubuntu-24.04
+    env:
+      APP_ENV: development
+      ENCRYPTION_KEY: dmFsaWRfdGVzdF9rZXlfMzJfYnl0ZXNfbG9uZ19fX18=
+      TELEGRAM_WEBHOOK_BASE_URL: https://channels.example.test
+    steps:
+      - uses: actions/checkout@v5
+      - name: Build supported application images
+        run: docker compose -f compose.yaml build api web postgres
+      - name: Materialize compose containers
+        run: docker compose -f compose.yaml create --no-build api web postgres
+      - name: Scan high and critical fixed vulnerabilities in runtime filesystems
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/cmh-trivy
+          for service in api web postgres; do
+            container_id=$(docker compose -f compose.yaml ps -q --all "$service" | head -n 1)
+            test -n "$container_id"
+            rootfs="/tmp/cmh-trivy/${service}"
+            mkdir -p "$rootfs"
+            docker export "$container_id" | tar --no-same-owner -xf - -C "$rootfs"
+            docker run --rm \
+              -v "$rootfs:/scan:ro" \
+              aquasec/trivy:0.74.0 \
+              rootfs /scan \
+              --scanners vuln \
+              --severity HIGH,CRITICAL \
+              --ignore-unfixed \
+              --exit-code 1
+            rm -rf "$rootfs"
+          done
+      - name: Cleanup
+        if: always()
+        run: docker compose -f compose.yaml down -v --remove-orphans

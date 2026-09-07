@@ -27,6 +27,10 @@ from customers_manager_hub.knowledge_storage import build_object_storage
 from customers_manager_hub.logging_config import configure_logging
 from customers_manager_hub.memory import router as memory_router
 from customers_manager_hub.policies import router as policies_router
+from customers_manager_hub.production_hardening import (
+    ProductionHardeningMiddleware,
+    RedisRateLimiter,
+)
 from customers_manager_hub.telegram import TelegramAdapter
 from customers_manager_hub.tenants import router as tenants_router
 from customers_manager_hub.tools import router as tools_router
@@ -41,8 +45,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     configure_logging(resolved_settings.app_log_level)
     engine, session_factory = create_database(resolved_settings)
     channel_redis = create_channel_redis(resolved_settings)
-    channel_queue = ChannelJobQueue(channel_redis)
-    knowledge_queue = KnowledgeJobQueue(channel_redis)
+    channel_queue = ChannelJobQueue(
+        channel_redis,
+        max_delivery_attempts=resolved_settings.worker_max_delivery_attempts,
+    )
+    knowledge_queue = KnowledgeJobQueue(
+        channel_redis,
+        max_delivery_attempts=resolved_settings.worker_max_delivery_attempts,
+    )
     knowledge_storage = build_object_storage(resolved_settings)
 
     @asynccontextmanager
@@ -68,6 +78,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         title=resolved_settings.app_name,
         debug=resolved_settings.app_debug,
         lifespan=lifespan,
+    )
+    application.add_middleware(
+        ProductionHardeningMiddleware,
+        settings=resolved_settings,
+        rate_limiter=RedisRateLimiter(channel_redis),
     )
     application.state.settings = resolved_settings
     application.state.db_session_factory = session_factory

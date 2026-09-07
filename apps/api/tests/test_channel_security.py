@@ -2,7 +2,7 @@ import base64
 from uuid import uuid4
 
 import pytest
-from pydantic import SecretStr
+from pydantic import SecretStr, ValidationError
 
 from customers_manager_hub.channel_models import ChannelCredentialKind
 from customers_manager_hub.channel_security import (
@@ -92,12 +92,5 @@ def test_channel_secret_requires_generated_32_byte_key() -> None:
         )
 
     short_key = base64.urlsafe_b64encode(b"short").decode()
-    invalid = Settings(app_env="test", encryption_key=SecretStr(short_key))
-    with pytest.raises(ChannelSecretConfigurationError):
-        encrypt_channel_secret(
-            invalid,
-            uuid4(),
-            uuid4(),
-            ChannelCredentialKind.TELEGRAM_BOT_TOKEN,
-            "secret",
-        )
+    with pytest.raises(ValidationError):
+        Settings(app_env="test", encryption_key=SecretStr(short_key))

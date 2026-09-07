@@ -28,6 +28,10 @@ jobs:
       - run: uv run ruff check apps/api/src apps/api/tests
       - run: uv run ruff format --check apps/api/src apps/api/tests
       - run: uv run pyright apps/api/src apps/api/tests
+      - name: Validate operations scripts
+        run: |
+          python -m py_compile scripts/load_http.py
+          bash -n scripts/backup_postgres.sh scripts/restore_postgres.sh
       - name: Unit regression
         env:
           RUN_DB_INTEGRATION: "0"
@@ -83,6 +87,9 @@ jobs:
       RUN_DB_INTEGRATION: "1"
       ENCRYPTION_KEY: dmFsaWRfdGVzdF9rZXlfMzJfYnl0ZXNfbG9uZ19fX18=
       TELEGRAM_WEBHOOK_BASE_URL: https://channels.example.test
+      RATE_LIMIT_LOGIN_REQUESTS: "10000"
+      RATE_LIMIT_PUBLIC_REQUESTS: "100000"
+      RATE_LIMIT_WEBHOOK_REQUESTS: "100000"
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v5
@@ -114,6 +121,13 @@ jobs:
         run: docker compose -f compose.yaml up -d postgres redis object-storage
       - name: Run migrations inside backend image
         run: docker compose -f compose.yaml run --rm api alembic upgrade head
+      - name: Backup and restore smoke
+        run: |
+          bash scripts/backup_postgres.sh /tmp/cmh-ci.dump
+          bash scripts/restore_postgres.sh /tmp/cmh-ci.dump cmh_restore_ci
+          docker compose -f compose.yaml exec -T postgres \
+            dropdb -U "${POSTGRES_USER:-cmh}" --if-exists cmh_restore_ci
+          rm -f /tmp/cmh-ci.dump
       - name: Start application services
         run: docker compose -f compose.yaml up -d api worker web
       - name: Verify readiness
@@ -129,6 +143,8 @@ jobs:
             fi
             sleep 2
           done
+      - name: Load-probe smoke
+        run: python scripts/load_http.py http://127.0.0.1:8000/health --requests 20 --concurrency 5
       - name: Verify non-root application runtime
         run: |
           test "$(docker compose -f compose.yaml exec -T api id -u)" != "0"
