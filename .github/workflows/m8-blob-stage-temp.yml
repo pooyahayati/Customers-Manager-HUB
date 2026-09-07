@@ -53,8 +53,20 @@ jobs:
             apps/api/src/customers_manager_hub/main.py \
             apps/api/src/customers_manager_hub/tool_runtime.py \
             apps/api/src/customers_manager_hub/worker.py; do
-            encoded=$(base64 -w0 "$path")
-            sha=$(jq -n --arg content "$encoded" '{content:$content,encoding:"base64"}' | gh api --method POST "repos/${GITHUB_REPOSITORY}/git/blobs" --input - --jq .sha)
+            python - "$path" /tmp/blob.json <<'PY'
+          import base64
+          import json
+          from pathlib import Path
+          import sys
+
+          source = Path(sys.argv[1])
+          target = Path(sys.argv[2])
+          target.write_text(json.dumps({
+              "content": base64.b64encode(source.read_bytes()).decode(),
+              "encoding": "base64",
+          }))
+          PY
+            sha=$(gh api --method POST "repos/${GITHUB_REPOSITORY}/git/blobs" --input /tmp/blob.json --jq .sha)
             printf '%s %s\n' "$sha" "$path" >> /tmp/blob-shas.txt
           done
           cat /tmp/blob-shas.txt
