@@ -20,6 +20,10 @@ from customers_manager_hub.agent_models import (
     AgentRunStatus,
     PromptVersionStatus,
 )
+from customers_manager_hub.agent_runtime import (
+    build_conversation_input,
+    process_agent_event,
+)
 from customers_manager_hub.ai_gateway import (
     AIGateway,
     AIProviderRegistry,
@@ -168,6 +172,30 @@ class RecordingMockAIProvider(MockAIProviderAdapter):
         timeout_seconds: int,
     ) -> GenerationResult:
         self.generation_requests.append(request)
+        return await super().generate(model_id, request, parameters, timeout_seconds)
+
+
+class LeaseObservingAIProvider(RecordingMockAIProvider):
+    def __init__(self, *, generation_text: str) -> None:
+        super().__init__(generation_text=generation_text)
+        self.lease_samples: list[datetime] = []
+
+    async def generate(
+        self,
+        model_id: str,
+        request: GenerationRequest,
+        parameters: dict[str, object],
+        timeout_seconds: int,
+    ) -> GenerationResult:
+        with Session(SYNC_ENGINE) as db:
+            first = db.scalar(select(AgentRun.lease_until))
+            assert first is not None
+            self.lease_samples.append(first)
+        await asyncio.sleep(0.05)
+        with Session(SYNC_ENGINE) as db:
+            second = db.scalar(select(AgentRun.lease_until))
+            assert second is not None
+            self.lease_samples.append(second)
         return await super().generate(model_id, request, parameters, timeout_seconds)
 
 
@@ -672,6 +700,89 @@ def test_worker_generates_resumes_dispatch_and_deduplicates_agent_response() -> 
         assert ai_provider.calls == 1
         assert adapter.send_attempts == 2
         assert SYNC_REDIS.xlen(CHANNEL_JOB_STREAM) == 0
+    finally:
+        close_client(client)
+
+
+def test_long_generation_renews_lease_and_context_budget_is_enforced() -> None:
+    adapter = FakeTelegramAdapter()
+    _, client = open_client(adapter)
+    try:
+        tenant_id, channel_id, _, webhook_secret = configure_runtime(
+            client,
+            adapter,
+            prompt_content="Answer briefly.",
+        )
+        accepted = post_webhook(
+            client,
+            channel_id,
+            webhook_secret,
+            update_id=551,
+            message_id=56,
+            text_value="Please help with my order",
+        )
+        assert accepted.status_code == 200
+        with Session(SYNC_ENGINE) as db:
+            event = db.scalar(
+                select(ChannelInboundEvent).where(
+                    ChannelInboundEvent.channel_account_id == channel_id,
+                    ChannelInboundEvent.external_event_id == "551",
+                )
+            )
+            assert event is not None
+            event_id = event.id
+
+        ai_provider = LeaseObservingAIProvider(generation_text="I can help with that.")
+
+        async def run_agent() -> None:
+            engine, session_factory = create_database(TEST_SETTINGS)
+            try:
+                await process_agent_event(
+                    session_factory,
+                    AIGateway(AIProviderRegistry((ai_provider,)), session_factory),
+                    ChannelRegistry((adapter,)),
+                    TEST_SETTINGS,
+                    event_id,
+                    lease_renew_interval_seconds=0.01,
+                )
+            finally:
+                await engine.dispose()
+
+        asyncio.run(run_agent())
+        assert len(ai_provider.lease_samples) == 2
+        assert ai_provider.lease_samples[1] > ai_provider.lease_samples[0]
+        assert ai_provider.calls == 1
+        assert adapter.send_attempts == 1
+
+        with Session(SYNC_ENGINE) as db:
+            run = db.scalar(select(AgentRun).where(AgentRun.tenant_id == tenant_id))
+            assert run is not None
+            assert run.status == AgentRunStatus.SUCCEEDED.value
+            conversation_id = run.conversation_id
+            inbound_message_id = run.inbound_message_id
+
+        async def bounded_context() -> str:
+            engine, session_factory = create_database(TEST_SETTINGS)
+            try:
+                return await build_conversation_input(
+                    session_factory,
+                    tenant_id=tenant_id,
+                    conversation_id=conversation_id,
+                    current_message_id=inbound_message_id,
+                    current_text="Please help with my order",
+                    history_char_budget=10,
+                )
+            finally:
+                await engine.dispose()
+
+        model_input = asyncio.run(bounded_context())
+        history_section, current_section = model_input.split(
+            "\n\nCurrent customer message:\n",
+            1,
+        )
+        history_payload = history_section.split("\n", 1)[1]
+        assert len(history_payload) <= 10
+        assert current_section == "CUSTOMER: Please help with my order"
     finally:
         close_client(client)
 

@@ -45,7 +45,7 @@ Every eligible inbound customer text message has at most one `AgentRun` per tena
 
 The run snapshots the selected agent, prompt version, conversation, channel account, and inbound message. It persists a generated response before external channel dispatch. After successful canonical outbound persistence, the temporary generated response is cleared and the outbound message ID is retained.
 
-A short PostgreSQL-backed lease prevents two workers from generating/sending the same run concurrently. An expired lease can be reclaimed after a worker crash.
+A short PostgreSQL-backed lease prevents two workers from generating/sending the same run concurrently. While AI generation remains in flight, the runtime periodically renews the lease without holding a database transaction open. An expired lease can be reclaimed after a worker crash.
 
 Redis remains delivery infrastructure only. PostgreSQL remains the source of truth for run state and idempotency.
 
@@ -67,9 +67,9 @@ Rejected. It removes publish/rollback semantics, makes in-flight retries non-det
 
 Rejected for the initial lifecycle. Publishing would require a second activation action for every agent and would make one shared prompt harder to manage. Agents instead reference the prompt definition, while each run snapshots the published version it actually used.
 
-### Hold a database transaction/advisory lock across the AI and Telegram network calls
+### Hold the AgentRun transaction/row lock across AI generation
 
-Rejected. It would keep database transactions/connections open across slow external I/O and reduce runtime resilience.
+Rejected. It would keep database transactions/connections open across slow AI I/O and reduce runtime resilience. AgentRun ownership instead uses a renewable lease. Outbound dispatch continues to use Milestone 5's existing per-idempotency advisory transaction serialization inside the channel runtime; ADR-012 does not redefine that transport boundary.
 
 ### Use Redis locks/run state
 

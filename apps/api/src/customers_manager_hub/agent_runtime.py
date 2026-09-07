@@ -1,5 +1,5 @@
 import asyncio
-
+from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
@@ -308,9 +308,7 @@ async def _renew_run_lease(
             .where(
                 AgentRun.id == claim.run_id,
                 AgentRun.lease_token == claim.lease_token,
-                AgentRun.status.in_(
-                    (AgentRunStatus.PENDING.value, AgentRunStatus.GENERATED.value)
-                ),
+                AgentRun.status.in_((AgentRunStatus.PENDING.value, AgentRunStatus.GENERATED.value)),
             )
             .values(lease_until=lease_until)
             .returning(AgentRun.id)
@@ -351,10 +349,8 @@ async def _generate_with_lease_renewal(
     finally:
         if not generation_task.done():
             generation_task.cancel()
-            try:
+            with suppress(asyncio.CancelledError):
                 await generation_task
-            except asyncio.CancelledError:
-                pass
 
 
 async def _load_run_snapshot(

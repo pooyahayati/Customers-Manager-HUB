@@ -108,7 +108,7 @@ The run stores:
 
 There is one AgentRun per tenant/inbound message.
 
-A worker must not hold a database transaction open across AI/provider network calls. Instead it claims the run with a lease, performs external work, and commits state transitions between stages. An expired lease may be reclaimed.
+A worker must not hold a database transaction open across AI/provider network calls. Instead it claims the run with a lease, performs external work, and commits state transitions between stages. While AI generation remains in flight, the runtime periodically renews the lease using short independent database transactions. An expired lease may be reclaimed.
 
 Retryable AI/channel failures keep the run resumable and leave the Redis stream entry pending. Deterministic configuration/output failures mark the run failed and allow the queue entry to be acknowledged.
 
@@ -216,8 +216,9 @@ Automated coverage must include at least:
 12. Reprocessing/reclaiming the same inbound event does not invoke AI or Telegram send again after success.
 13. A generated-but-not-yet-dispatched run resumes using persisted generated text without another AI call.
 14. Retryable AI/channel failure remains resumable; deterministic configuration/output failure becomes terminal.
-15. AI execution trace is still created through the configured task profile without storing prompt/customer/output content.
-16. Migration applies from `0004`, `alembic check` reports no drift, and full Docker Compose runtime still starts API/Web/Worker/PostgreSQL/Redis with API/Worker non-root.
+15. Long-running AI generation renews the AgentRun lease so normal provider retry/fallback duration cannot cause a second worker to claim the same run.
+16. AI execution trace is still created through the configured task profile without storing prompt/customer/output content.
+17. Migration applies from `0004`, `alembic check` reports no drift, and full Docker Compose runtime still starts API/Web/Worker/PostgreSQL/Redis with API/Worker non-root.
 
 ## Exit Gate
 
