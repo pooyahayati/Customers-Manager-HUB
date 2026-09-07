@@ -40,7 +40,9 @@ class JsonFormatter(logging.Formatter):
             "message": record.getMessage(),
         }
         explicit_request_id = getattr(record, "request_id", None)
-        request_id = explicit_request_id if explicit_request_id is not None else current_request_id()
+        request_id = (
+            explicit_request_id if explicit_request_id is not None else current_request_id()
+        )
         if request_id is not None:
             payload["request_id"] = str(request_id)[:128]
         for field_name in _OPERATIONAL_FIELDS:
