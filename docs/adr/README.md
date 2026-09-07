@@ -61,5 +61,6 @@ If an accepted decision materially changes, create a new ADR that supersedes the
 - ADR-014 — Canonical Tool Runtime and Structured Agent Tool Loop
 - ADR-015 — S3-Compatible Object Storage and PostgreSQL pgvector RAG
 - ADR-016 — Gemini-First Provider-Neutral Voice Transcription
+- ADR-017 — Conversation Handoff State Machine and Operator Control Boundary
 
 Additional ADRs should be created only when a material implementation decision becomes imminent.
