@@ -1,0 +1,166 @@
+name: M13 Stage Temporary
+
+on:
+  push:
+    branches: [feat/m13-policy-engine]
+    paths: [.github/workflows/m13-stage-temp.yml]
+
+permissions:
+  contents: write
+
+jobs:
+  stage:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: feat/m13-policy-engine
+      - uses: actions/setup-python@v5
+        with:
+          python-version-file: .python-version
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --frozen
+      - name: Integrate policy runtime
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace(path: str, old: str, new: str) -> None:
+              target = Path(path)
+              text = target.read_text()
+              if old not in text:
+                  if new in text:
+                      return
+                  raise SystemExit(f"anchor not found: {path}")
+              target.write_text(text.replace(old, new, 1))
+
+          policies = "apps/api/src/customers_manager_hub/policies.py"
+          replace(
+              policies,
+              "from fastapi import APIRouter, Depends, HTTPException, Query, Response, status\n",
+              "from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status\n",
+          )
+          replace(
+              policies,
+              '''def _session_factory_from_db(db: AsyncSession) -> AsyncSessionFactory:\n    bind = db.bind\n    if bind is None:\n        raise RuntimeError("Database session has no bind")\n    from sqlalchemy.ext.asyncio import async_sessionmaker\n\n    return cast(AsyncSessionFactory, async_sessionmaker(bind, expire_on_commit=False))\n''',
+              '''def get_session_factory(request: Request) -> AsyncSessionFactory:\n    return cast(AsyncSessionFactory, request.app.state.db_session_factory)\n''',
+          )
+          replace(
+              policies,
+              '''async def get_policy(\n    context: TenantContextDependency,\n    db: DbSession,\n) -> TenantPolicyResponse:\n''',
+              '''async def get_policy(\n    request: Request,\n    context: TenantContextDependency,\n    db: DbSession,\n) -> TenantPolicyResponse:\n''',
+          )
+          replace(policies, "        _session_factory_from_db(db),\n", "        get_session_factory(request),\n")
+          replace(
+              policies,
+              '''async def put_tool_policy_rule(\n    tool_id: UUID,\n    payload: ToolPolicyRulePut,\n    context: TenantContextDependency,\n    db: DbSession,\n) -> ToolPolicyRuleResponse:\n''',
+              '''async def put_tool_policy_rule(\n    tool_id: UUID,\n    payload: ToolPolicyRulePut,\n    request: Request,\n    context: TenantContextDependency,\n    db: DbSession,\n) -> ToolPolicyRuleResponse:\n''',
+          )
+          replace(
+              policies,
+              "    policy = await _ensure_policy_row(db, _session_factory_from_db(db), context.tenant.id)\n",
+              "    policy = await _ensure_policy_row(db, get_session_factory(request), context.tenant.id)\n",
+          )
+          replace(
+              policies,
+              '''async def delete_tool_policy_rule(\n    tool_id: UUID,\n    context: TenantContextDependency,\n    db: DbSession,\n) -> Response:\n''',
+              '''async def delete_tool_policy_rule(\n    tool_id: UUID,\n    request: Request,\n    context: TenantContextDependency,\n    db: DbSession,\n) -> Response:\n''',
+          )
+          replace(
+              policies,
+              "    policy = await _ensure_policy_row(db, _session_factory_from_db(db), context.tenant.id)\n",
+              "    policy = await _ensure_policy_row(db, get_session_factory(request), context.tenant.id)\n",
+          )
+
+          handoff_runtime = "apps/api/src/customers_manager_hub/handoff_runtime.py"
+          replace(
+              handoff_runtime,
+              "\n\nasync def evaluate_event_escalation(\n",
+              '''\n\nasync def request_event_handoff(\n    session_factory: AsyncSessionFactory,\n    event_id: UUID,\n    *,\n    reason_code: str,\n) -> UUID:\n    async with session_factory() as db:\n        event = await db.scalar(\n            select(ChannelInboundEvent).where(ChannelInboundEvent.id == event_id)\n        )\n        if event is None or event.message_id is None:\n            raise HandoffRuntimeError("handoff_event_missing")\n        message = await db.scalar(\n            select(Message).where(\n                Message.id == event.message_id,\n                Message.tenant_id == event.tenant_id,\n            )\n        )\n        if message is None:\n            raise HandoffRuntimeError("handoff_event_message_missing")\n        tenant_id = event.tenant_id\n        conversation_id = message.conversation_id\n    handoff = await request_handoff(\n        session_factory,\n        tenant_id=tenant_id,\n        conversation_id=conversation_id,\n        request_source=HandoffRequestSource.SYSTEM,\n        reason_code=reason_code,\n    )\n    return handoff.id\n\n\nasync def evaluate_event_escalation(\n''',
+          )
+
+          handoff_api = "apps/api/src/customers_manager_hub/handoff.py"
+          replace(
+              handoff_api,
+              "from customers_manager_hub.models import (\n",
+              "from customers_manager_hub.policy_models import TenantPolicy\nfrom customers_manager_hub.models import (\n",
+          )
+          replace(
+              handoff_api,
+              '''    else:\n        policy.enabled = payload.enabled\n        policy.customer_keywords = payload.customer_keywords\n        policy.pause_on_tool_approval = payload.pause_on_tool_approval\n    db.add(\n        AuditEvent(\n''',
+              '''    else:\n        policy.enabled = payload.enabled\n        policy.customer_keywords = payload.customer_keywords\n        policy.pause_on_tool_approval = payload.pause_on_tool_approval\n\n    tenant_policy = await db.scalar(\n        select(TenantPolicy).where(TenantPolicy.tenant_id == context.tenant.id)\n    )\n    if tenant_policy is None:\n        tenant_policy = TenantPolicy(\n            tenant_id=context.tenant.id,\n            enabled=payload.enabled,\n            revision=1,\n            timezone="UTC",\n            business_hours={},\n            outside_business_hours_action="allow",\n            autonomy_mode="autonomous",\n            message_rules={},\n            handoff_keywords=payload.customer_keywords,\n            handoff_on_tool_approval=payload.pause_on_tool_approval,\n            approval_min_risk="high",\n            require_approval_for_writes=False,\n        )\n        db.add(tenant_policy)\n    else:\n        tenant_policy.enabled = payload.enabled\n        tenant_policy.revision += 1\n        tenant_policy.handoff_keywords = payload.customer_keywords\n        tenant_policy.handoff_on_tool_approval = payload.pause_on_tool_approval\n    db.add(\n        AuditEvent(\n''',
+          )
+
+          tool_runtime = "apps/api/src/customers_manager_hub/tool_runtime.py"
+          replace(
+              tool_runtime,
+              "from customers_manager_hub.models import AuditEvent\n",
+              "from customers_manager_hub.models import AuditEvent\nfrom customers_manager_hub.policy_models import PolicyDecisionAction\nfrom customers_manager_hub.policy_runtime import PolicyEngine, PolicyRuntimeError\n",
+          )
+          replace(
+              tool_runtime,
+              '''    def __init__(\n        self,\n        settings: Settings,\n        session_factory: AsyncSessionFactory,\n        registry: ToolAdapterRegistry,\n    ) -> None:\n        self._settings = settings\n        self._session_factory = session_factory\n        self._registry = registry\n''',
+              '''    def __init__(\n        self,\n        settings: Settings,\n        session_factory: AsyncSessionFactory,\n        registry: ToolAdapterRegistry,\n        policy_engine: PolicyEngine | None = None,\n    ) -> None:\n        self._settings = settings\n        self._session_factory = session_factory\n        self._registry = registry\n        self._policy_engine = policy_engine\n''',
+          )
+          replace(
+              tool_runtime,
+              '''    async def _create_execution(\n        self,\n        *,\n        tool: ToolDefinition,\n        agent_id: UUID,\n        agent_run_id: UUID,\n        call_ordinal: int,\n        idempotency_key: str,\n        arguments: dict[str, object],\n    ) -> ToolExecution:\n        approval_required = self._approval_required(tool)\n        async with self._session_factory() as db:\n            execution = ToolExecution(\n                tenant_id=tool.tenant_id,\n                tool_id=tool.id,\n                agent_id=agent_id,\n                agent_run_id=agent_run_id,\n                call_ordinal=call_ordinal,\n                idempotency_key=idempotency_key,\n                status=(\n                    ToolExecutionStatus.APPROVAL_REQUIRED.value\n                    if approval_required\n                    else ToolExecutionStatus.PENDING.value\n                ),\n                approval_status=(\n                    ToolApprovalStatus.PENDING.value\n                    if approval_required\n                    else ToolApprovalStatus.NOT_REQUIRED.value\n                ),\n                input_payload=arguments,\n            )\n''',
+              '''    async def _create_execution(\n        self,\n        *,\n        tool: ToolDefinition,\n        agent_id: UUID,\n        agent_run_id: UUID,\n        call_ordinal: int,\n        idempotency_key: str,\n        arguments: dict[str, object],\n        approval_required: bool,\n        denied: bool = False,\n        error_code: str | None = None,\n    ) -> ToolExecution:\n        async with self._session_factory() as db:\n            execution = ToolExecution(\n                tenant_id=tool.tenant_id,\n                tool_id=tool.id,\n                agent_id=agent_id,\n                agent_run_id=agent_run_id,\n                call_ordinal=call_ordinal,\n                idempotency_key=idempotency_key,\n                status=(\n                    ToolExecutionStatus.DENIED.value\n                    if denied\n                    else (\n                        ToolExecutionStatus.APPROVAL_REQUIRED.value\n                        if approval_required\n                        else ToolExecutionStatus.PENDING.value\n                    )\n                ),\n                approval_status=(\n                    ToolApprovalStatus.DENIED.value\n                    if denied\n                    else (\n                        ToolApprovalStatus.PENDING.value\n                        if approval_required\n                        else ToolApprovalStatus.NOT_REQUIRED.value\n                    )\n                ),\n                input_payload=arguments,\n                error_code=error_code[:100] if error_code is not None else None,\n            )\n''',
+          )
+          replace(
+              tool_runtime,
+              '''        execution = await self._load_execution(tenant_id, idempotency_key)\n        if execution is None:\n            execution = await self._create_execution(\n                tool=tool,\n                agent_id=agent_id,\n                agent_run_id=agent_run_id,\n                call_ordinal=call_ordinal,\n                idempotency_key=idempotency_key,\n                arguments=normalized_arguments,\n            )\n''',
+              '''        execution = await self._load_execution(tenant_id, idempotency_key)\n        if execution is None:\n            approval_required = self._approval_required(tool)\n            denied = False\n            policy_error_code: str | None = None\n            if self._policy_engine is not None:\n                try:\n                    policy_decision = await self._policy_engine.evaluate_tool(\n                        tenant_id=tenant_id,\n                        agent_id=agent_id,\n                        tool=tool,\n                        baseline_approval_required=approval_required,\n                    )\n                except PolicyRuntimeError as exc:\n                    raise ToolRuntimeError(exc.code, retryable=True) from exc\n                approval_required = policy_decision.approval_required\n                if policy_decision.action == PolicyDecisionAction.DENY:\n                    denied = True\n                    policy_error_code = policy_decision.reason_code\n            execution = await self._create_execution(\n                tool=tool,\n                agent_id=agent_id,\n                agent_run_id=agent_run_id,\n                call_ordinal=call_ordinal,\n                idempotency_key=idempotency_key,\n                arguments=normalized_arguments,\n                approval_required=approval_required,\n                denied=denied,\n                error_code=policy_error_code,\n            )\n''',
+          )
+          replace(
+              tool_runtime,
+              '''        if (\n            self._approval_required(tool)\n            and execution.approval_status != ToolApprovalStatus.APPROVED.value\n        ):\n            return self._result(execution, qualified_name)\n''',
+              '''        if execution.approval_status == ToolApprovalStatus.PENDING.value:\n            return self._result(execution, qualified_name)\n''',
+          )
+
+          worker = "apps/api/src/customers_manager_hub/worker.py"
+          replace(
+              worker,
+              "from customers_manager_hub.handoff_runtime import HandoffRuntimeError, evaluate_event_escalation\n",
+              '''from customers_manager_hub.handoff_runtime import (\n    HandoffRuntimeError,\n    evaluate_event_escalation,\n    request_event_handoff,\n)\n''',
+          )
+          replace(
+              worker,
+              '''from customers_manager_hub.memory_runtime import (\n    MemoryRuntimeError,\n    extract_customer_memory_from_event,\n)\n''',
+              '''from customers_manager_hub.memory_runtime import (\n    MemoryRuntimeError,\n    extract_customer_memory_from_event,\n)\nfrom customers_manager_hub.policy_models import PolicyDecisionAction\nfrom customers_manager_hub.policy_runtime import PolicyEngine, PolicyRuntimeError\n''',
+          )
+          replace(
+              worker,
+              '''    knowledge_runtime: KnowledgeRuntime | None = None,\n    voice_downloader: TelegramVoiceMediaDownloader | None = None,\n) -> None:\n    try:\n        await process_channel_event(session_factory, channel_registry, settings, job.event_id)\n''',
+              '''    knowledge_runtime: KnowledgeRuntime | None = None,\n    voice_downloader: TelegramVoiceMediaDownloader | None = None,\n    policy_engine: PolicyEngine | None = None,\n) -> None:\n    policy_message_handoff_reason: str | None = None\n    if policy_engine is not None:\n        try:\n            message_decision = await policy_engine.evaluate_message_event(job.event_id)\n        except PolicyRuntimeError as exc:\n            logger.error(\n                "message policy evaluation failed",\n                extra={"event_id": str(job.event_id), "error_code": exc.code},\n            )\n            return\n        if message_decision.action == PolicyDecisionAction.DENY:\n            await mark_event_ignored(session_factory, job.event_id, message_decision.reason_code)\n            await queue.acknowledge(job.stream_id)\n            return\n        if message_decision.action == PolicyDecisionAction.HANDOFF:\n            policy_message_handoff_reason = message_decision.reason_code\n\n    try:\n        await process_channel_event(session_factory, channel_registry, settings, job.event_id)\n''',
+          )
+          replace(
+              worker,
+              '''        try:\n            handoff_id = await evaluate_event_escalation(session_factory, job.event_id)\n        except HandoffRuntimeError as exc:\n            logger.error(\n                "handoff evaluation failed",\n                extra={"event_id": str(job.event_id), "error_code": exc.code},\n            )\n            return\n\n        if handoff_id is None:\n''',
+              '''        try:\n            if policy_engine is None:\n                handoff_id = await evaluate_event_escalation(session_factory, job.event_id)\n            elif policy_message_handoff_reason is not None:\n                handoff_id = await request_event_handoff(\n                    session_factory,\n                    job.event_id,\n                    reason_code=policy_message_handoff_reason,\n                )\n            else:\n                ai_decision = await policy_engine.evaluate_ai_event(job.event_id)\n                if ai_decision.action == PolicyDecisionAction.HANDOFF:\n                    handoff_id = await request_event_handoff(\n                        session_factory,\n                        job.event_id,\n                        reason_code=ai_decision.reason_code,\n                    )\n                else:\n                    handoff_id = None\n        except (HandoffRuntimeError, PolicyRuntimeError) as exc:\n            logger.error(\n                "policy or handoff evaluation failed",\n                extra={"event_id": str(job.event_id), "error_code": exc.code},\n            )\n            return\n\n        if handoff_id is None:\n''',
+          )
+          replace(
+              worker,
+              '''            tool_runtime = ToolRuntime(\n                settings,\n                session_factory,\n                build_tool_adapter_registry(external_http_client),\n            )\n''',
+              '''            policy_engine = PolicyEngine(session_factory)\n            tool_runtime = ToolRuntime(\n                settings,\n                session_factory,\n                build_tool_adapter_registry(external_http_client),\n                policy_engine=policy_engine,\n            )\n''',
+          )
+          replace(
+              worker,
+              '''                        knowledge_runtime,\n                        voice_downloader,\n                    )\n''',
+              '''                        knowledge_runtime,\n                        voice_downloader,\n                        policy_engine,\n                    )\n''',
+          )
+          PY
+      - run: uv run ruff format apps/api/src apps/api/tests apps/api/migrations
+      - run: uv run ruff check apps/api/src apps/api/tests apps/api/migrations
+      - run: uv run ruff format --check apps/api/src apps/api/tests apps/api/migrations
+      - run: uv run pyright apps/api/src
+      - name: Commit staged integration
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add apps/api/src apps/api/migrations
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git commit -m "feat: integrate deterministic policy enforcement"
+          git push origin HEAD:feat/m13-policy-engine
