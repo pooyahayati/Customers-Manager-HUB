@@ -1,0 +1,73 @@
+name: M12 Stage Temporary
+
+on:
+  push:
+    branches: [feat/m12-customer-memory]
+    paths:
+      - .github/workflows/m12-stage-temp.yml
+
+permissions:
+  contents: write
+
+jobs:
+  stage:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: feat/m12-customer-memory
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+
+      - uses: astral-sh/setup-uv@v6
+
+      - name: Apply M12 runtime patch
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          runtime = Path('apps/api/src/customers_manager_hub/agent_runtime.py')
+          text = runtime.read_text()
+          import_anchor = '''from customers_manager_hub.knowledge_runtime import (\n    KnowledgeRetrievalResult,\n    KnowledgeRuntime,\n    KnowledgeRuntimeError,\n)\n'''
+          if 'from customers_manager_hub.memory_runtime import build_customer_memory_context\n' not in text:
+              text = text.replace(
+                  import_anchor,
+                  import_anchor + 'from customers_manager_hub.memory_runtime import build_customer_memory_context\n',
+              )
+          old = '''            model_input = await build_conversation_input(\n                session_factory,\n                tenant_id=snapshot.tenant_id,\n                conversation_id=snapshot.conversation_id,\n                current_message_id=snapshot.inbound_message_id,\n                current_text=snapshot.current_text,\n            )\n            try:\n'''
+          new = '''            model_input = await build_conversation_input(\n                session_factory,\n                tenant_id=snapshot.tenant_id,\n                conversation_id=snapshot.conversation_id,\n                current_message_id=snapshot.inbound_message_id,\n                current_text=snapshot.current_text,\n            )\n            memory_context = await build_customer_memory_context(\n                session_factory,\n                tenant_id=snapshot.tenant_id,\n                conversation_id=snapshot.conversation_id,\n            )\n            if memory_context:\n                model_input += "\\n\\n" + memory_context\n            try:\n'''
+          if old not in text and new not in text:
+              raise SystemExit('agent runtime context anchor not found')
+          text = text.replace(old, new)
+          runtime.write_text(text)
+
+          for path in (
+              Path('apps/api/src/customers_manager_hub/memory_runtime.py'),
+              Path('apps/api/src/customers_manager_hub/memory.py'),
+          ):
+              value = path.read_text()
+              value = value.replace('_candidate_dedupe_key', 'memory_dedupe_key')
+              value = value.replace('_normalize_value', 'normalize_memory_value')
+              path.write_text(value)
+          PY
+
+      - run: uv sync --frozen
+
+      - name: Format and validate staged source
+        run: |
+          uv run ruff format apps/api/src apps/api/migrations
+          uv run ruff check apps/api/src apps/api/migrations
+          uv run pyright apps/api/src
+
+      - name: Commit staged source
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add apps/api/src apps/api/migrations
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git commit -m "feat: integrate M12 memory runtime"
+          git push origin HEAD:feat/m12-customer-memory
