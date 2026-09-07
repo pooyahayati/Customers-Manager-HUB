@@ -38,7 +38,7 @@ jobs:
       APP_ENV: test
       APP_SECRET_KEY: test-app-secret
       JWT_SECRET_KEY: test-jwt-secret
-      ENCRYPTION_KEY: YWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYQ==
+      ENCRYPTION_KEY: YWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWE=
       DATABASE_URL: postgresql+psycopg://cmh:change-me@localhost:5432/customers_manager_hub
       REDIS_URL: redis://localhost:6379/0
       RUN_DB_INTEGRATION: "1"
