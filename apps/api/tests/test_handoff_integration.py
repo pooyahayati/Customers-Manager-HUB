@@ -20,7 +20,13 @@ from customers_manager_hub.agent_models import (
     PromptVersionStatus,
 )
 from customers_manager_hub.agent_runtime import process_agent_event
-from customers_manager_hub.ai_gateway import AIGateway, AIProviderRegistry, MockAIProviderAdapter
+from customers_manager_hub.ai_gateway import (
+    AIGateway,
+    AIProviderRegistry,
+    GenerationRequest,
+    GenerationResult,
+    MockAIProviderAdapter,
+)
 from customers_manager_hub.ai_models import AITaskProfile, AITaskRoute, AITaskType
 from customers_manager_hub.channel_gateway import ChannelRegistry
 from customers_manager_hub.channel_models import (
@@ -35,12 +41,14 @@ from customers_manager_hub.database import create_database
 from customers_manager_hub.handoff_models import (
     ConversationHandoff,
     HandoffPolicy,
+    HandoffRequestSource,
     HandoffStatus,
     OperatorAssistSuggestion,
 )
 from customers_manager_hub.handoff_runtime import (
     evaluate_event_escalation,
     pause_for_tool_approval,
+    request_handoff,
     resolve_handoff,
 )
 from customers_manager_hub.main import create_app
@@ -122,7 +130,9 @@ def seed_user(
         return resolved_tenant_id, user.id
 
 
-def seed_conversation_bundle(tenant_id: UUID, *, text_value: str = "I need help") -> tuple[UUID, UUID, UUID, UUID]:
+def seed_conversation_bundle(
+    tenant_id: UUID, *, text_value: str = "I need help"
+) -> tuple[UUID, UUID, UUID, UUID]:
     with Session(SYNC_ENGINE, expire_on_commit=False) as db:
         contact = Contact(tenant_id=tenant_id, display_name="Customer")
         db.add(contact)
@@ -229,6 +239,31 @@ def seed_agent_stack(tenant_id: UUID, account_id: UUID) -> tuple[UUID, UUID]:
         return agent.id, version.id
 
 
+class HandoffDuringGenerationProvider(MockAIProviderAdapter):
+    def __init__(self, tenant_id: UUID, conversation_id: UUID) -> None:
+        super().__init__(key="mock", generation_text="This AI reply must never be sent")
+        self.tenant_id = tenant_id
+        self.conversation_id = conversation_id
+        self.handoff_id: UUID | None = None
+
+    async def generate(
+        self,
+        model_id: str,
+        request: GenerationRequest,
+        parameters: dict[str, object],
+        timeout_seconds: int,
+    ) -> GenerationResult:
+        handoff = await request_handoff(
+            SESSION_FACTORY,
+            tenant_id=self.tenant_id,
+            conversation_id=self.conversation_id,
+            request_source=HandoffRequestSource.SYSTEM,
+            reason_code="mid_generation_race",
+        )
+        self.handoff_id = handoff.id
+        return await super().generate(model_id, request, parameters, timeout_seconds)
+
+
 def login(client: TestClient, email: str, password: str) -> Response:
     response = client.post("/api/v1/auth/login", json={"email": email, "password": password})
     assert response.status_code == 200
@@ -283,15 +318,11 @@ def test_operator_lifecycle_rbac_reply_idempotency_and_tenant_isolation() -> Non
         assert replay.json()["id"] == handoff_id
 
         login(client, "viewer-a@example.com", "viewer handoff password a")
-        denied = client.put(
-            f"/api/v1/tenants/{tenant_a}/operator-inbox/{conversation_id}/claim"
-        )
+        denied = client.put(f"/api/v1/tenants/{tenant_a}/operator-inbox/{conversation_id}/claim")
         assert denied.status_code == 403
 
         login(client, "agent-a@example.com", "agent handoff password a")
-        claimed = client.put(
-            f"/api/v1/tenants/{tenant_a}/operator-inbox/{conversation_id}/claim"
-        )
+        claimed = client.put(f"/api/v1/tenants/{tenant_a}/operator-inbox/{conversation_id}/claim")
         assert claimed.status_code == 200
         assert claimed.json()["status"] == "claimed"
         assert claimed.json()["claimed_by_user_id"] == str(agent_user_id)
@@ -323,9 +354,7 @@ def test_operator_lifecycle_rbac_reply_idempotency_and_tenant_isolation() -> Non
         assert released.json()["status"] == "queued"
 
         login(client, "owner-b@example.com", "owner handoff password b")
-        cross_tenant = client.get(
-            f"/api/v1/tenants/{tenant_b}/operator-inbox/{conversation_id}"
-        )
+        cross_tenant = client.get(f"/api/v1/tenants/{tenant_b}/operator-inbox/{conversation_id}")
         assert cross_tenant.status_code == 404
 
         login(client, "owner-a@example.com", "owner handoff password a")
@@ -387,9 +416,7 @@ def test_active_handoff_blocks_agent_and_assist_is_draft_only() -> None:
         with Session(SYNC_ENGINE) as db:
             assert db.scalar(select(AgentRun).where(AgentRun.tenant_id == tenant_id)) is None
 
-        assist = client.post(
-            f"/api/v1/tenants/{tenant_id}/operator-inbox/{conversation_id}/assist"
-        )
+        assist = client.post(f"/api/v1/tenants/{tenant_id}/operator-inbox/{conversation_id}/assist")
         assert assist.status_code == 201
         assert assist.json()["text"] == "Suggested human draft"
         assert provider.calls == 1
@@ -540,3 +567,57 @@ def test_keyword_escalation_and_tool_approval_pause_resume_are_separate_controls
         assert run is not None and run.status == AgentRunStatus.PENDING.value
         assert execution is not None
         assert execution.approval_status == ToolApprovalStatus.PENDING.value
+
+
+def test_handoff_created_during_generation_blocks_final_ai_dispatch() -> None:
+    tenant_id, _ = seed_user(
+        slug="handoff-race",
+        email="race-owner@example.com",
+        password="race handoff owner password",
+        role=TenantRole.OWNER,
+    )
+    conversation_id, account_id, _, event_id = seed_conversation_bundle(
+        tenant_id, text_value="Please answer this question"
+    )
+    seed_agent_stack(tenant_id, account_id)
+    provider = HandoffDuringGenerationProvider(tenant_id, conversation_id)
+    gateway = AIGateway(AIProviderRegistry((provider,)), SESSION_FACTORY)
+
+    asyncio.run(
+        process_agent_event(
+            SESSION_FACTORY,
+            gateway,
+            ChannelRegistry(()),
+            TEST_SETTINGS,
+            event_id,
+        )
+    )
+
+    assert provider.calls == 1
+    assert provider.handoff_id is not None
+    with Session(SYNC_ENGINE) as db:
+        run = db.scalar(
+            select(AgentRun).where(
+                AgentRun.tenant_id == tenant_id,
+                AgentRun.conversation_id == conversation_id,
+            )
+        )
+        assert run is not None
+        assert run.status == AgentRunStatus.PAUSED.value
+        assert run.generated_text is None
+        assert run.lease_token is None
+        handoff = db.get(ConversationHandoff, provider.handoff_id)
+        assert handoff is not None
+        assert handoff.status == HandoffStatus.QUEUED.value
+        assert handoff.source_agent_run_id == run.id
+        outbound_ai = list(
+            db.scalars(
+                select(Message).where(
+                    Message.tenant_id == tenant_id,
+                    Message.conversation_id == conversation_id,
+                    Message.direction == MessageDirection.OUTBOUND.value,
+                    Message.author_type == MessageAuthorType.AI.value,
+                )
+            ).all()
+        )
+        assert outbound_ai == []

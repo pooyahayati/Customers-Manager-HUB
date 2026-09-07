@@ -58,18 +58,12 @@ def upgrade() -> None:
             name="ck_conversation_handoffs_request_source",
         ),
         sa.ForeignKeyConstraint(["tenant_id"], ["tenants.id"], ondelete="CASCADE"),
-        sa.ForeignKeyConstraint(
-            ["conversation_id"], ["conversations.id"], ondelete="CASCADE"
-        ),
+        sa.ForeignKeyConstraint(["conversation_id"], ["conversations.id"], ondelete="CASCADE"),
         sa.ForeignKeyConstraint(
             ["requested_by_user_id"], ["platform_users.id"], ondelete="SET NULL"
         ),
-        sa.ForeignKeyConstraint(
-            ["claimed_by_user_id"], ["platform_users.id"], ondelete="SET NULL"
-        ),
-        sa.ForeignKeyConstraint(
-            ["source_agent_run_id"], ["agent_runs.id"], ondelete="SET NULL"
-        ),
+        sa.ForeignKeyConstraint(["claimed_by_user_id"], ["platform_users.id"], ondelete="SET NULL"),
+        sa.ForeignKeyConstraint(["source_agent_run_id"], ["agent_runs.id"], ondelete="SET NULL"),
         sa.ForeignKeyConstraint(
             ["source_tool_execution_id"], ["tool_executions.id"], ondelete="SET NULL"
         ),
@@ -131,9 +125,7 @@ def upgrade() -> None:
             ondelete="CASCADE",
             name="fk_operator_assist_handoff_tenant",
         ),
-        sa.ForeignKeyConstraint(
-            ["conversation_id"], ["conversations.id"], ondelete="CASCADE"
-        ),
+        sa.ForeignKeyConstraint(["conversation_id"], ["conversations.id"], ondelete="CASCADE"),
         sa.ForeignKeyConstraint(
             ["requested_by_user_id"], ["platform_users.id"], ondelete="RESTRICT"
         ),
@@ -153,9 +145,7 @@ def downgrade() -> None:
     )
     op.drop_table("operator_assist_suggestions")
     op.drop_table("handoff_policies")
-    op.drop_index(
-        "ix_conversation_handoffs_tenant_claimant", table_name="conversation_handoffs"
-    )
+    op.drop_index("ix_conversation_handoffs_tenant_claimant", table_name="conversation_handoffs")
     op.drop_index(
         "ix_conversation_handoffs_tenant_status_created", table_name="conversation_handoffs"
     )

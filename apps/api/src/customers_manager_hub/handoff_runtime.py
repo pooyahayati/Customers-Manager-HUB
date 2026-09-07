@@ -4,6 +4,7 @@ from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from customers_manager_hub.agent_models import AgentRun, AgentRunStatus
 from customers_manager_hub.channel_models import ChannelInboundEvent
@@ -58,11 +59,7 @@ async def load_effective_policy(
         row = await db.scalar(select(HandoffPolicy).where(HandoffPolicy.tenant_id == tenant_id))
     if row is None:
         return default_handoff_policy()
-    keywords = tuple(
-        item.strip().casefold()
-        for item in row.customer_keywords
-        if isinstance(item, str) and item.strip()
-    )
+    keywords = tuple(item.strip().casefold() for item in row.customer_keywords if item.strip())
     return EffectiveHandoffPolicy(
         enabled=row.enabled,
         customer_keywords=keywords,
@@ -71,7 +68,7 @@ async def load_effective_policy(
 
 
 async def _active_handoff(
-    db,
+    db: AsyncSession,
     tenant_id: UUID,
     conversation_id: UUID,
     *,
@@ -101,7 +98,9 @@ async def is_event_ai_paused(
     event_id: UUID,
 ) -> bool:
     async with session_factory() as db:
-        event = await db.scalar(select(ChannelInboundEvent).where(ChannelInboundEvent.id == event_id))
+        event = await db.scalar(
+            select(ChannelInboundEvent).where(ChannelInboundEvent.id == event_id)
+        )
         if event is None or event.message_id is None:
             return False
         message = await db.scalar(
@@ -130,10 +129,12 @@ async def request_handoff(
     for attempt in range(2):
         async with session_factory() as db:
             conversation = await db.scalar(
-                select(Conversation).where(
+                select(Conversation)
+                .where(
                     Conversation.id == conversation_id,
                     Conversation.tenant_id == tenant_id,
                 )
+                .with_for_update()
             )
             if conversation is None:
                 raise HandoffRuntimeError("handoff_conversation_missing")
@@ -143,7 +144,10 @@ async def request_handoff(
                 if existing.source_agent_run_id is None and source_agent_run_id is not None:
                     existing.source_agent_run_id = source_agent_run_id
                     changed = True
-                if existing.source_tool_execution_id is None and source_tool_execution_id is not None:
+                if (
+                    existing.source_tool_execution_id is None
+                    and source_tool_execution_id is not None
+                ):
                     existing.source_tool_execution_id = source_tool_execution_id
                     changed = True
                 if changed:
@@ -195,7 +199,9 @@ async def evaluate_event_escalation(
     event_id: UUID,
 ) -> UUID | None:
     async with session_factory() as db:
-        event = await db.scalar(select(ChannelInboundEvent).where(ChannelInboundEvent.id == event_id))
+        event = await db.scalar(
+            select(ChannelInboundEvent).where(ChannelInboundEvent.id == event_id)
+        )
         if event is None or event.message_id is None:
             return None
         message = await db.scalar(
@@ -251,6 +257,16 @@ async def pause_for_tool_approval(
 
     for attempt in range(2):
         async with session_factory() as db:
+            conversation = await db.scalar(
+                select(Conversation)
+                .where(
+                    Conversation.id == conversation_id,
+                    Conversation.tenant_id == tenant_id,
+                )
+                .with_for_update()
+            )
+            if conversation is None:
+                raise HandoffRuntimeError("handoff_conversation_missing")
             run = await db.scalar(
                 select(AgentRun)
                 .where(
@@ -313,6 +329,53 @@ async def pause_for_tool_approval(
                 raise
             return existing.id
     raise HandoffRuntimeError("handoff_tool_pause_race")
+
+
+async def guard_ai_dispatch(
+    db: AsyncSession,
+    *,
+    tenant_id: UUID,
+    conversation_id: UUID,
+    agent_run_id: UUID,
+    lease_token: UUID,
+) -> bool:
+    conversation = await db.scalar(
+        select(Conversation)
+        .where(
+            Conversation.id == conversation_id,
+            Conversation.tenant_id == tenant_id,
+        )
+        .with_for_update()
+    )
+    if conversation is None:
+        raise HandoffRuntimeError("handoff_conversation_missing")
+
+    handoff = await _active_handoff(db, tenant_id, conversation_id, for_update=True)
+    if handoff is None:
+        return True
+
+    run = await db.scalar(
+        select(AgentRun)
+        .where(
+            AgentRun.id == agent_run_id,
+            AgentRun.tenant_id == tenant_id,
+            AgentRun.conversation_id == conversation_id,
+            AgentRun.lease_token == lease_token,
+            AgentRun.status.in_((AgentRunStatus.PENDING.value, AgentRunStatus.GENERATED.value)),
+        )
+        .with_for_update()
+    )
+    if run is None:
+        raise HandoffRuntimeError("agent_run_lease_lost")
+
+    run.status = AgentRunStatus.PAUSED.value
+    run.generated_text = None
+    run.error_code = None
+    run.lease_token = None
+    run.lease_until = None
+    if handoff.source_agent_run_id is None:
+        handoff.source_agent_run_id = run.id
+    return False
 
 
 async def claim_handoff(

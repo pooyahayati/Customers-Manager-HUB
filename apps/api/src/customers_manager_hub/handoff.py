@@ -256,7 +256,9 @@ def _runtime_http_error(exc: HandoffRuntimeError) -> HTTPException:
     }:
         return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Handoff not found")
     if exc.code == "handoff_not_owner":
-        return HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Handoff is owned by another operator")
+        return HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Handoff is owned by another operator"
+        )
     return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=exc.code)
 
 
@@ -307,11 +309,15 @@ async def _load_active_handoff_api(
         select(ConversationHandoff).where(
             ConversationHandoff.tenant_id == tenant_id,
             ConversationHandoff.conversation_id == conversation_id,
-            ConversationHandoff.status.in_((HandoffStatus.QUEUED.value, HandoffStatus.CLAIMED.value)),
+            ConversationHandoff.status.in_(
+                (HandoffStatus.QUEUED.value, HandoffStatus.CLAIMED.value)
+            ),
         )
     )
     if handoff is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Active handoff not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Active handoff not found"
+        )
     return handoff
 
 
@@ -328,7 +334,9 @@ def _ensure_reply_owner(
     if handoff.status != HandoffStatus.CLAIMED.value:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Handoff must be claimed")
     if handoff.claimed_by_user_id != actor_user_id and not _can_override(role):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Handoff is owned by another operator")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Handoff is owned by another operator"
+        )
 
 
 @router.get("/handoff-policy", response_model=HandoffPolicyResponse)
@@ -412,7 +420,9 @@ async def list_operator_inbox(
         select(ConversationHandoff)
         .where(
             ConversationHandoff.tenant_id == context.tenant.id,
-            ConversationHandoff.status.in_((HandoffStatus.QUEUED.value, HandoffStatus.CLAIMED.value)),
+            ConversationHandoff.status.in_(
+                (HandoffStatus.QUEUED.value, HandoffStatus.CLAIMED.value)
+            ),
         )
         .order_by(ConversationHandoff.requested_at, ConversationHandoff.id)
         .limit(limit)
@@ -656,7 +666,9 @@ async def send_operator_reply(
         )
     )
     await db.commit()
-    return HumanReplyResponse(message_id=message.id, text=message.text or "", occurred_at=message.occurred_at)
+    return HumanReplyResponse(
+        message_id=message.id, text=message.text or "", occurred_at=message.occurred_at
+    )
 
 
 @router.post("/{conversation_id}/assist", response_model=AssistSuggestionResponse, status_code=201)
@@ -667,13 +679,15 @@ async def generate_operator_assist(
     db: DbSession,
 ) -> AssistSuggestionResponse:
     role = require_tenant_role(context, OperatorRoles)
-    conversation, _, binding, _ = await _load_conversation_contact_binding(
+    conversation, _, binding, account = await _load_conversation_contact_binding(
         db, context.tenant.id, conversation_id
     )
     handoff = await _load_active_handoff_api(db, context.tenant.id, conversation_id)
     _ensure_reply_owner(handoff, actor_user_id=context.current.user.id, role=role)
     if binding is None:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Conversation has no channel binding")
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="Conversation has no channel binding"
+        )
     assignment = await db.scalar(
         select(AgentChannelAssignment).where(
             AgentChannelAssignment.tenant_id == context.tenant.id,
@@ -681,7 +695,9 @@ async def generate_operator_assist(
         )
     )
     if assignment is None:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="No agent assigned to channel")
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="No agent assigned to channel"
+        )
     agent = await db.scalar(
         select(Agent).where(
             Agent.id == assignment.agent_id,
@@ -690,7 +706,9 @@ async def generate_operator_assist(
         )
     )
     if agent is None:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Assigned agent unavailable")
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="Assigned agent unavailable"
+        )
     prompt = await db.scalar(
         select(AgentPromptVersion).where(
             AgentPromptVersion.tenant_id == context.tenant.id,
@@ -699,7 +717,9 @@ async def generate_operator_assist(
         )
     )
     if prompt is None:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Agent prompt is not published")
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="Agent prompt is not published"
+        )
     current = await db.scalar(
         select(Message)
         .where(
@@ -713,7 +733,9 @@ async def generate_operator_assist(
         .limit(1)
     )
     if current is None or current.text is None or not current.text.strip():
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="No customer text available")
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="No customer text available"
+        )
     model_input = await build_conversation_input(
         get_session_factory(request),
         tenant_id=context.tenant.id,
@@ -721,10 +743,13 @@ async def generate_operator_assist(
         current_message_id=current.id,
         current_text=current.text,
     )
-    channel_type = ChannelType((await db.scalar(select(ChannelAccount.channel_type).where(ChannelAccount.id == binding.channel_account_id))) or ChannelType.TELEGRAM.value)
+    if account is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="Channel account unavailable"
+        )
+    channel_type = ChannelType(account.channel_type)
     instructions = (
-        compose_instructions(prompt.content, channel_type)
-        + "\n\n[OPERATOR ASSIST MODE]\n"
+        compose_instructions(prompt.content, channel_type) + "\n\n[OPERATOR ASSIST MODE]\n"
         "Draft one suggested customer-facing reply for the human operator. "
         "Do not claim the draft was sent or that an external action occurred."
     )
@@ -736,7 +761,9 @@ async def generate_operator_assist(
         )
     except AIRoutingError as exc:
         raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE if exc.retryable else status.HTTP_409_CONFLICT,
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE
+            if exc.retryable
+            else status.HTTP_409_CONFLICT,
             detail=exc.code,
         ) from exc
     text = validate_customer_response(result.text)
@@ -764,4 +791,6 @@ async def generate_operator_assist(
     )
     await db.commit()
     await db.refresh(suggestion)
-    return AssistSuggestionResponse(id=suggestion.id, text=suggestion.text, created_at=suggestion.created_at)
+    return AssistSuggestionResponse(
+        id=suggestion.id, text=suggestion.text, created_at=suggestion.created_at
+    )

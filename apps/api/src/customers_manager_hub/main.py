@@ -18,6 +18,7 @@ from customers_manager_hub.config import Settings, get_settings
 from customers_manager_hub.contacts import router as contacts_router
 from customers_manager_hub.conversations import router as conversations_router
 from customers_manager_hub.database import create_database
+from customers_manager_hub.handoff import router as handoff_router
 from customers_manager_hub.health import router as health_router
 from customers_manager_hub.knowledge import router as knowledge_router
 from customers_manager_hub.knowledge_queue import KnowledgeJobQueue
@@ -82,6 +83,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.include_router(channels_router)
     application.include_router(contacts_router)
     application.include_router(conversations_router)
+    application.include_router(handoff_router)
     application.include_router(channel_webhooks_router)
     application.include_router(website_public_router)
     return application
