@@ -1,0 +1,49 @@
+name: M13 Stage Fix Temporary
+
+on:
+  push:
+    branches: [feat/m13-policy-engine]
+    paths: [.github/workflows/m13-stage-fix-temp.yml]
+
+permissions:
+  contents: write
+
+jobs:
+  stage:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: feat/m13-policy-engine
+      - uses: actions/setup-python@v5
+        with:
+          python-version-file: .python-version
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --frozen
+      - name: Apply integration patch from stage workflow
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from textwrap import dedent
+
+          content = Path('.github/workflows/m13-stage-temp.yml').read_text()
+          marker = "          python - <<'PY'\n"
+          block = content.split(marker, 1)[1].split("\n          PY", 1)[0]
+          exec(compile(dedent(block), 'm13-stage-patch', 'exec'))
+          PY
+      - run: uv run ruff format apps/api/src apps/api/tests apps/api/migrations
+      - run: uv run ruff check --fix apps/api/src apps/api/tests apps/api/migrations
+      - run: uv run ruff format apps/api/src apps/api/tests apps/api/migrations
+      - run: uv run ruff check apps/api/src apps/api/tests apps/api/migrations
+      - run: uv run ruff format --check apps/api/src apps/api/tests apps/api/migrations
+      - run: uv run pyright apps/api/src
+      - name: Commit staged integration
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add apps/api/src apps/api/migrations
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git commit -m "feat: integrate deterministic policy enforcement"
+          git push origin HEAD:feat/m13-policy-engine
