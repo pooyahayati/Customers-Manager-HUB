@@ -43,14 +43,18 @@ jobs:
           text = text.replace(old, new)
           runtime.write_text(text)
 
-          for path in (
-              Path('apps/api/src/customers_manager_hub/memory_runtime.py'),
-              Path('apps/api/src/customers_manager_hub/memory.py'),
-          ):
-              value = path.read_text()
-              value = value.replace('_candidate_dedupe_key', 'memory_dedupe_key')
-              value = value.replace('_normalize_value', 'normalize_memory_value')
-              path.write_text(value)
+          memory_runtime = Path('apps/api/src/customers_manager_hub/memory_runtime.py')
+          value = memory_runtime.read_text()
+          value = value.replace('_candidate_dedupe_key', 'memory_dedupe_key')
+          value = value.replace('_normalize_value', 'normalize_memory_value')
+          value = value.replace('    now = datetime.now(UTC)\n    written = 0\n', '    written = 0\n')
+          memory_runtime.write_text(value)
+
+          memory_api = Path('apps/api/src/customers_manager_hub/memory.py')
+          value = memory_api.read_text()
+          value = value.replace('_candidate_dedupe_key', 'memory_dedupe_key')
+          value = value.replace('_normalize_value', 'normalize_memory_value')
+          memory_api.write_text(value)
           PY
 
       - run: uv sync --frozen
