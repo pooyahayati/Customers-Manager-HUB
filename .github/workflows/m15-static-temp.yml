@@ -1,0 +1,25 @@
+name: M15 Static Temporary
+
+on:
+  push:
+    branches: [feat/m15-security-production-hardening]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  static:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version-file: .python-version
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --frozen
+      - run: uv run ruff check apps/api/src apps/api/tests
+      - run: uv run ruff format --check apps/api/src apps/api/tests
+      - run: uv run pyright apps/api/src apps/api/tests
+      - run: python -m py_compile scripts/load_http.py
+      - run: bash -n scripts/backup_postgres.sh scripts/restore_postgres.sh
