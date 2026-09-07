@@ -50,8 +50,8 @@ jobs:
           exit 1
       - name: Migration upgrade and drift check
         run: |
-          uv run alembic -c apps/api/alembic.ini upgrade head
-          uv run alembic -c apps/api/alembic.ini check
+          uv run alembic -c alembic.ini upgrade head
+          uv run alembic -c alembic.ini check
       - name: M11 integration tests
         run: uv run pytest -q apps/api/tests/test_handoff_integration.py
       - name: Full API regression with DB integration
@@ -70,7 +70,7 @@ jobs:
           docker run --rm --network host \
             -e DATABASE_URL="$DATABASE_URL" \
             -e REDIS_URL="$REDIS_URL" \
-            cmh-api:m11 alembic -c apps/api/alembic.ini upgrade head
+            cmh-api:m11 alembic -c alembic.ini upgrade head
       - name: Compose smoke
         env:
           API_PORT: "18000"
