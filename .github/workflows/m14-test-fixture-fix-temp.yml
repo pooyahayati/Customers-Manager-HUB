@@ -1,0 +1,50 @@
+name: M14 Test Fixture Fix Temporary
+
+on:
+  push:
+    branches:
+      - feat/m14-analytics-usage-cost
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: feat/m14-analytics-usage-cost
+      - uses: actions/setup-python@v5
+        with:
+          python-version-file: .python-version
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --frozen
+      - name: Fix M14 fixtures and self-clean
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('apps/api/tests/test_analytics_integration.py')
+          text = path.read_text()
+          replacements = {
+              '"pass-a"': '"AnalyticsPassA123"',
+              '"pass-viewer"': '"AnalyticsViewer123"',
+              '"pass-b"': '"AnalyticsPassB123"',
+              '"pass-cost"': '"AnalyticsCost123"',
+              '"pass-ops"': '"AnalyticsOps123"',
+              '"pass-window"': '"AnalyticsWindow123"',
+          }
+          for old, new in replacements.items():
+              text = text.replace(old, new)
+          path.write_text(text)
+          PY
+          uv run ruff check apps/api/src apps/api/tests
+          uv run ruff format --check apps/api/src apps/api/tests
+          uv run pyright apps/api/src apps/api/tests
+          rm .github/workflows/m14-test-fixture-fix-temp.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m 'fix: align M14 test fixtures with auth policy'
+          git push origin HEAD:feat/m14-analytics-usage-cost
