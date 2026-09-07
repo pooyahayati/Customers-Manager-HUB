@@ -64,6 +64,7 @@ from customers_manager_hub.tool_models import (
     ToolExecutionStatus,
 )
 from customers_manager_hub.tool_runtime import (
+    ToolAdapterError,
     ToolAdapterRegistry,
     ToolAdapterRequest,
     ToolRuntime,
@@ -684,5 +685,283 @@ def test_agent_tool_loop_executes_authorized_tool_once_without_secret_exposure()
                 await engine.dispose()
 
         asyncio.run(unauthorized())
+    finally:
+        close_client(client)
+
+
+class ScriptedGenericRestAdapter:
+    kind = ToolAdapterKind.GENERIC_REST
+
+    def __init__(self) -> None:
+        self.behaviors: dict[UUID, str] = {}
+        self.calls: dict[UUID, int] = {}
+        self.execution_tokens: dict[UUID, list[str]] = {}
+
+    async def execute(self, request: ToolAdapterRequest) -> dict[str, object]:
+        call_count = self.calls.get(request.tool_id, 0) + 1
+        self.calls[request.tool_id] = call_count
+        self.execution_tokens.setdefault(request.tool_id, []).append(request.execution_token)
+        behavior = self.behaviors.get(request.tool_id, "success")
+        if behavior == "retry_once" and call_count == 1:
+            raise ToolAdapterError("hardening_transient", retryable=True)
+        if behavior == "always_retry":
+            raise ToolAdapterError("hardening_transient", retryable=True)
+        if behavior == "invalid_output":
+            return {"value": "not-an-integer"}
+        return {"value": 7}
+
+
+def create_hardening_tool(
+    client: TestClient,
+    tenant_id: UUID,
+    *,
+    name: str,
+    operation_type: str = "read",
+    risk_level: str = "low",
+    max_attempts: int = 2,
+    idempotency_header: bool = False,
+) -> UUID:
+    configuration: dict[str, object] = {
+        "url": "https://api.example.test/runtime",
+        "method": "GET" if operation_type == "read" else "POST",
+        "argument_location": "query" if operation_type == "read" else "json",
+    }
+    if idempotency_header:
+        configuration["idempotency_header"] = "Idempotency-Key"
+    response = client.post(
+        f"/api/v1/tenants/{tenant_id}/tools",
+        json={
+            "name": name,
+            "version": 1,
+            "description": f"Hardening tool {name}",
+            "adapter_kind": "generic_rest",
+            "operation_type": operation_type,
+            "risk_level": risk_level,
+            "input_schema": object_schema({"key": {"type": "string"}}, ["key"]),
+            "output_schema": object_schema({"value": {"type": "integer"}}, ["value"]),
+            "configuration": configuration,
+            "timeout_seconds": 5,
+            "max_attempts": max_attempts,
+            "requires_approval": False,
+        },
+    )
+    assert response.status_code == 201
+    return UUID(response.json()["id"])
+
+
+def test_tool_runtime_hardens_approval_retry_replay_and_output_validation() -> None:
+    tenant_id = seed_tenant_user(
+        slug="tool-hardening",
+        name="Tool Hardening",
+        email="hardening-owner@example.com",
+        password="hardening owner password",
+    )
+    channel_adapter = FakeTelegramAdapter()
+    client = open_client(channel_adapter)
+    try:
+        login(client, "hardening-owner@example.com", "hardening owner password")
+        channel_id = create_channel(client, tenant_id)
+        prompt_id = create_prompt(client, tenant_id)
+        agent_id = create_agent(client, tenant_id, prompt_id)
+        assigned = client.put(
+            f"/api/v1/tenants/{tenant_id}/agents/assignments/channels/{channel_id}",
+            json={"agent_id": str(agent_id)},
+        )
+        assert assigned.status_code == 200
+        seed_customer_response_profile(tenant_id)
+        webhook = post_webhook(client, channel_id, stored_webhook_secret(channel_id))
+        assert webhook.status_code == 200
+
+        async def create_agent_run() -> UUID:
+            engine, session_factory = create_database(TEST_SETTINGS)
+            redis_client = create_channel_redis(TEST_SETTINGS)
+            queue = ChannelJobQueue(redis_client)
+            try:
+                await queue.ensure_group()
+                jobs = await queue.consume("m8-hardening-consumer", block_ms=20)
+                assert len(jobs) == 1
+                provider = MockAIProviderAdapter(key="mock", generation_text="Baseline response")
+                gateway = AIGateway(AIProviderRegistry((provider,)), session_factory)
+                await process_job(
+                    jobs[0],
+                    queue,
+                    ChannelRegistry((channel_adapter,)),
+                    gateway,
+                    TEST_SETTINGS,
+                    session_factory,
+                )
+                return jobs[0].event_id
+            finally:
+                await redis_client.aclose()
+                await engine.dispose()
+
+        event_id = asyncio.run(create_agent_run())
+        with Session(SYNC_ENGINE) as db:
+            event = db.get(ChannelInboundEvent, event_id)
+            assert event is not None
+            run_row = db.scalar(
+                select(AgentRun).where(AgentRun.inbound_message_id == event.message_id)
+            )
+            assert run_row is not None
+            agent_run_id = run_row.id
+
+        high_tool = create_hardening_tool(
+            client, tenant_id, name="hardening.high", risk_level="high"
+        )
+        retry_tool = create_hardening_tool(client, tenant_id, name="hardening.retry")
+        write_once_tool = create_hardening_tool(
+            client,
+            tenant_id,
+            name="hardening.write-once",
+            operation_type="write",
+            max_attempts=3,
+        )
+        write_retry_tool = create_hardening_tool(
+            client,
+            tenant_id,
+            name="hardening.write-retry",
+            operation_type="write",
+            max_attempts=2,
+            idempotency_header=True,
+        )
+        invalid_output_tool = create_hardening_tool(
+            client, tenant_id, name="hardening.invalid-output"
+        )
+        inactive_tool = create_hardening_tool(client, tenant_id, name="hardening.inactive")
+        for tool_id in (
+            high_tool,
+            retry_tool,
+            write_once_tool,
+            write_retry_tool,
+            invalid_output_tool,
+            inactive_tool,
+        ):
+            permission = client.put(
+                f"/api/v1/tenants/{tenant_id}/agents/{agent_id}/tools/{tool_id}"
+            )
+            assert permission.status_code == 200
+        deactivated = client.patch(
+            f"/api/v1/tenants/{tenant_id}/tools/{inactive_tool}",
+            json={"is_active": False},
+        )
+        assert deactivated.status_code == 200
+
+        adapter = ScriptedGenericRestAdapter()
+        adapter.behaviors[retry_tool] = "retry_once"
+        adapter.behaviors[write_once_tool] = "always_retry"
+        adapter.behaviors[write_retry_tool] = "retry_once"
+        adapter.behaviors[invalid_output_tool] = "invalid_output"
+
+        async def run_hardening() -> None:
+            engine, session_factory = create_database(TEST_SETTINGS)
+            runtime = ToolRuntime(
+                TEST_SETTINGS,
+                session_factory,
+                ToolAdapterRegistry((adapter,)),
+            )
+            try:
+                approval = await runtime.execute_agent_tool(
+                    tenant_id=tenant_id,
+                    agent_id=agent_id,
+                    agent_run_id=agent_run_id,
+                    call_ordinal=1,
+                    qualified_name="hardening.high@1",
+                    arguments={"key": "A"},
+                )
+                assert approval.status == ToolExecutionStatus.APPROVAL_REQUIRED
+                assert adapter.calls.get(high_tool, 0) == 0
+
+                retried = await runtime.execute_agent_tool(
+                    tenant_id=tenant_id,
+                    agent_id=agent_id,
+                    agent_run_id=agent_run_id,
+                    call_ordinal=2,
+                    qualified_name="hardening.retry@1",
+                    arguments={"key": "B"},
+                )
+                assert retried.status == ToolExecutionStatus.SUCCEEDED
+                assert adapter.calls[retry_tool] == 2
+                replay = await runtime.execute_agent_tool(
+                    tenant_id=tenant_id,
+                    agent_id=agent_id,
+                    agent_run_id=agent_run_id,
+                    call_ordinal=2,
+                    qualified_name="hardening.retry@1",
+                    arguments={"key": "B"},
+                )
+                assert replay.status == ToolExecutionStatus.SUCCEEDED
+                assert adapter.calls[retry_tool] == 2
+                with pytest.raises(ToolRuntimeError, match="tool_call_replay_mismatch"):
+                    await runtime.execute_agent_tool(
+                        tenant_id=tenant_id,
+                        agent_id=agent_id,
+                        agent_run_id=agent_run_id,
+                        call_ordinal=2,
+                        qualified_name="hardening.retry@1",
+                        arguments={"key": "changed"},
+                    )
+
+                write_once = await runtime.execute_agent_tool(
+                    tenant_id=tenant_id,
+                    agent_id=agent_id,
+                    agent_run_id=agent_run_id,
+                    call_ordinal=3,
+                    qualified_name="hardening.write-once@1",
+                    arguments={"key": "C"},
+                )
+                assert write_once.status == ToolExecutionStatus.FAILED
+                assert write_once.error_code == "hardening_transient"
+                assert adapter.calls[write_once_tool] == 1
+
+                write_retry = await runtime.execute_agent_tool(
+                    tenant_id=tenant_id,
+                    agent_id=agent_id,
+                    agent_run_id=agent_run_id,
+                    call_ordinal=4,
+                    qualified_name="hardening.write-retry@1",
+                    arguments={"key": "D"},
+                )
+                assert write_retry.status == ToolExecutionStatus.SUCCEEDED
+                assert adapter.calls[write_retry_tool] == 2
+                tokens = adapter.execution_tokens[write_retry_tool]
+                assert len(tokens) == 2
+                assert tokens[0] == tokens[1]
+
+                invalid_output = await runtime.execute_agent_tool(
+                    tenant_id=tenant_id,
+                    agent_id=agent_id,
+                    agent_run_id=agent_run_id,
+                    call_ordinal=5,
+                    qualified_name="hardening.invalid-output@1",
+                    arguments={"key": "E"},
+                )
+                assert invalid_output.status == ToolExecutionStatus.FAILED
+                assert invalid_output.error_code == "tool_output_schema_invalid"
+                assert invalid_output.output is None
+
+                with pytest.raises(ToolRuntimeError, match="tool_not_authorized"):
+                    await runtime.execute_agent_tool(
+                        tenant_id=tenant_id,
+                        agent_id=agent_id,
+                        agent_run_id=agent_run_id,
+                        call_ordinal=6,
+                        qualified_name="hardening.inactive@1",
+                        arguments={"key": "F"},
+                    )
+                assert adapter.calls.get(inactive_tool, 0) == 0
+
+                with pytest.raises(ToolRuntimeError, match="tool_agent_unavailable"):
+                    await runtime.execute_agent_tool(
+                        tenant_id=tenant_id,
+                        agent_id=uuid4(),
+                        agent_run_id=agent_run_id,
+                        call_ordinal=7,
+                        qualified_name="hardening.retry@1",
+                        arguments={"key": "G"},
+                    )
+            finally:
+                await engine.dispose()
+
+        asyncio.run(run_hardening())
     finally:
         close_client(client)

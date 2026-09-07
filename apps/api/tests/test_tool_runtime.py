@@ -269,3 +269,56 @@ def test_google_sheets_adapter_uses_fixed_google_endpoint_and_bearer() -> None:
                 )
 
     asyncio.run(run())
+
+
+def test_rest_adapter_classifies_http_failures_and_timeouts() -> None:
+    async def execute_status(status_code: int) -> ToolAdapterError:
+        def handler(request: httpx2.Request) -> httpx2.Response:
+            return httpx2.Response(status_code, request=request, json={"error": "simulated"})
+
+        async with httpx2.AsyncClient(transport=httpx2.MockTransport(handler)) as client:
+            adapter = RestToolAdapter(client, resolver=public_resolver)
+            with pytest.raises(ToolAdapterError) as caught:
+                await adapter.execute(
+                    ToolAdapterRequest(
+                        tool_id=uuid4(),
+                        operation_type=ToolOperationType.READ,
+                        configuration={"url": "https://api.example.test/data", "method": "GET"},
+                        arguments={"id": "123"},
+                        credential=None,
+                        execution_token="status-test",
+                        timeout_seconds=5,
+                    )
+                )
+            return caught.value
+
+    async def execute_timeout() -> ToolAdapterError:
+        def handler(request: httpx2.Request) -> httpx2.Response:
+            raise httpx2.ReadTimeout("simulated timeout", request=request)
+
+        async with httpx2.AsyncClient(transport=httpx2.MockTransport(handler)) as client:
+            adapter = RestToolAdapter(client, resolver=public_resolver)
+            with pytest.raises(ToolAdapterError) as caught:
+                await adapter.execute(
+                    ToolAdapterRequest(
+                        tool_id=uuid4(),
+                        operation_type=ToolOperationType.READ,
+                        configuration={"url": "https://api.example.test/data", "method": "GET"},
+                        arguments={"id": "123"},
+                        credential=None,
+                        execution_token="timeout-test",
+                        timeout_seconds=5,
+                    )
+                )
+            return caught.value
+
+    async def run() -> None:
+        for status_code, retryable in ((400, False), (429, True), (503, True)):
+            error = await execute_status(status_code)
+            assert error.code == f"tool_http_{status_code}"
+            assert error.retryable is retryable
+        timeout_error = await execute_timeout()
+        assert timeout_error.code == "tool_http_timeout"
+        assert timeout_error.retryable is True
+
+    asyncio.run(run())
