@@ -1,6 +1,15 @@
 # syntax=docker/dockerfile:1.7
 
 ARG POSTGRES_VERSION=18.6-bookworm
+ARG GOSU_VERSION=1.19
+ARG GOSU_GO_VERSION=1.27.1
+
+FROM golang:${GOSU_GO_VERSION}-bookworm AS gosu-builder
+
+ARG GOSU_VERSION
+
+RUN CGO_ENABLED=0 go install -trimpath "github.com/tianon/gosu@v${GOSU_VERSION}"
+
 
 FROM postgres:${POSTGRES_VERSION} AS pgvector-builder
 
@@ -26,6 +35,10 @@ LABEL org.opencontainers.image.title="Customers Manager HUB PostgreSQL"
 LABEL org.opencontainers.image.description="PostgreSQL 18.6 with pgvector 0.8.6"
 LABEL org.opencontainers.image.source="https://github.com/pooyahayati/Customers-Manager-HUB"
 
+COPY --from=gosu-builder /go/bin/gosu /usr/local/bin/gosu
 COPY --from=pgvector-builder /usr/lib/postgresql/18/lib/vector.so /usr/lib/postgresql/18/lib/vector.so
 COPY --from=pgvector-builder /usr/share/postgresql/18/extension/vector.control /usr/share/postgresql/18/extension/vector.control
 COPY --from=pgvector-builder /usr/share/postgresql/18/extension/vector--*.sql /usr/share/postgresql/18/extension/
+
+RUN gosu --version \
+    && gosu nobody true
