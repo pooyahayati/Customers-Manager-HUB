@@ -221,7 +221,11 @@ async def _resolve_or_create_run(
         if (
             message.direction != MessageDirection.INBOUND.value
             or message.author_type != MessageAuthorType.CUSTOMER.value
-            or message.message_type != MessageType.TEXT.value
+            or message.message_type
+            not in {
+                MessageType.TEXT.value,
+                MessageType.VOICE.value,
+            }
             or message.text is None
             or not message.text.strip()
         ):
