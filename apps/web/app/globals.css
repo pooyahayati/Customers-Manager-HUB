@@ -15,11 +15,15 @@ body {
   color: #111111;
 }
 
+a {
+  color: inherit;
+}
+
 .bootstrap {
   min-height: 100vh;
   display: grid;
   place-content: center;
-  gap: 0.5rem;
+  gap: 0.75rem;
   padding: 2rem;
   text-align: center;
 }
@@ -27,4 +31,85 @@ body {
 .bootstrap h1,
 .bootstrap p {
   margin: 0;
+}
+
+.analytics-shell {
+  width: min(1180px, 100%);
+  margin: 0 auto;
+  padding: 3rem 1.5rem 5rem;
+}
+
+.analytics-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 2rem;
+  border-bottom: 1px solid #dddddd;
+  padding-bottom: 2rem;
+}
+
+.analytics-header h1,
+.analytics-header p,
+.analytics-card h2,
+.analytics-card p,
+.analytics-contract h2 {
+  margin-top: 0;
+}
+
+.analytics-header p {
+  max-width: 760px;
+  line-height: 1.6;
+}
+
+.eyebrow {
+  margin-bottom: 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.analytics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 1rem;
+  margin-top: 2rem;
+}
+
+.analytics-card {
+  min-height: 160px;
+  border: 1px solid #dddddd;
+  border-radius: 12px;
+  padding: 1.25rem;
+}
+
+.analytics-card h2 {
+  font-size: 1rem;
+}
+
+.analytics-card p {
+  margin-bottom: 0;
+  line-height: 1.5;
+}
+
+.analytics-contract {
+  display: grid;
+  gap: 0.6rem;
+  margin-top: 2rem;
+  border-top: 1px solid #dddddd;
+  padding-top: 2rem;
+}
+
+.analytics-contract code {
+  overflow-x: auto;
+  border: 1px solid #e5e5e5;
+  border-radius: 8px;
+  padding: 0.75rem;
+  background: #f7f7f7;
+}
+
+@media (max-width: 640px) {
+  .analytics-header {
+    flex-direction: column;
+  }
 }
