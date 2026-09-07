@@ -1,0 +1,78 @@
+name: M11 Stage 2 Temporary
+
+on:
+  push:
+    branches: [feat/human-handoff]
+
+permissions:
+  contents: read
+
+jobs:
+  stage:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version-file: .python-version
+      - uses: astral-sh/setup-uv@v6
+      - name: Apply staged M11 patch
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import textwrap
+
+          workflow = Path('.github/workflows/m11-stage-temp.yml').read_text()
+          marker = "          python - <<'PY'\n"
+          if marker not in workflow:
+              raise SystemExit('source patch block missing')
+          block = workflow.split(marker, 1)[1].split("\n          PY", 1)[0]
+          exec(textwrap.dedent(block), {})
+
+          api = Path('apps/api/src/customers_manager_hub/handoff.py')
+          text = api.read_text()
+
+          reply_marker = 'async def send_operator_reply('
+          assist_marker = 'async def generate_operator_assist('
+          if reply_marker not in text or assist_marker not in text:
+              raise SystemExit('handoff function markers missing')
+
+          before_assist, assist_tail = text.split(assist_marker, 1)
+          reply_head, reply_tail = before_assist.split(reply_marker, 1)
+          reply_tail = reply_tail.replace(
+              '    conversation, _, binding, account = await _load_conversation_contact_binding(\n',
+              '    conversation, _, binding, _ = await _load_conversation_contact_binding(\n',
+              1,
+          )
+          assist_tail = assist_tail.replace(
+              '    conversation, _, binding, _ = await _load_conversation_contact_binding(\n',
+              '    conversation, _, binding, account = await _load_conversation_contact_binding(\n',
+              1,
+          )
+          api.write_text(reply_head + reply_marker + reply_tail + assist_marker + assist_tail)
+          PY
+      - run: uv sync --frozen
+      - name: Format staged M11 source
+        run: |
+          uv run ruff check --fix apps/api/src apps/api/tests apps/api/migrations
+          uv run ruff format apps/api/src apps/api/tests apps/api/migrations
+      - run: uv run ruff check apps/api/src apps/api/tests apps/api/migrations
+      - run: uv run ruff format --check apps/api/src apps/api/tests apps/api/migrations
+      - run: uv run pyright apps/api/src apps/api/tests
+      - name: Unit regression
+        env:
+          RUN_DB_INTEGRATION: "0"
+        run: uv run pytest apps/api/tests
+      - uses: actions/upload-artifact@v5
+        with:
+          name: m11-staged-source
+          path: |
+            apps/api/migrations/env.py
+            apps/api/migrations/versions/0009_human_handoff.py
+            apps/api/src/customers_manager_hub/agent_models.py
+            apps/api/src/customers_manager_hub/agent_runtime.py
+            apps/api/src/customers_manager_hub/handoff.py
+            apps/api/src/customers_manager_hub/handoff_models.py
+            apps/api/src/customers_manager_hub/handoff_runtime.py
+            apps/api/src/customers_manager_hub/main.py
+            apps/api/src/customers_manager_hub/worker.py
