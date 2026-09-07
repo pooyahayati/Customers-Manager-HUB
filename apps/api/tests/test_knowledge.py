@@ -134,7 +134,7 @@ def test_pdf_text_provenance_and_normalization(monkeypatch: pytest.MonkeyPatch) 
             del source, strict
 
     monkeypatch.setattr(parsing, "PdfReader", FakeReader)
-    units = parsing.parse_pdf(b"fake")
+    units = parsing.parse_pdf(b"%PDF-1.7\nfake")
     assert len(units) == 1
     assert units[0].text == "Refunds allowed\nwithin 30 days."
     assert units[0].provenance == {"page": 1}
