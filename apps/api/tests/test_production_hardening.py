@@ -76,12 +76,10 @@ def test_client_ip_trusts_forwarding_only_from_configured_proxy() -> None:
     forwarded = ((b"x-forwarded-for", b"198.51.100.25, 10.0.0.1"),)
 
     assert (
-        client_ip(_request("/", client="10.1.2.3", headers=forwarded), settings)
-        == "198.51.100.25"
+        client_ip(_request("/", client="10.1.2.3", headers=forwarded), settings) == "198.51.100.25"
     )
     assert (
-        client_ip(_request("/", client="192.0.2.50", headers=forwarded), settings)
-        == "192.0.2.50"
+        client_ip(_request("/", client="192.0.2.50", headers=forwarded), settings) == "192.0.2.50"
     )
 
 
