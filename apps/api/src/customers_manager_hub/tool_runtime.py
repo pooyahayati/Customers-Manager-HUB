@@ -22,6 +22,8 @@ from customers_manager_hub.agent_models import Agent
 from customers_manager_hub.config import Settings
 from customers_manager_hub.database import AsyncSessionFactory
 from customers_manager_hub.models import AuditEvent
+from customers_manager_hub.policy_models import PolicyDecisionAction
+from customers_manager_hub.policy_runtime import PolicyEngine, PolicyRuntimeError
 from customers_manager_hub.tool_models import (
     AgentToolPermission,
     ToolAdapterKind,
@@ -580,10 +582,12 @@ class ToolRuntime:
         settings: Settings,
         session_factory: AsyncSessionFactory,
         registry: ToolAdapterRegistry,
+        policy_engine: PolicyEngine | None = None,
     ) -> None:
         self._settings = settings
         self._session_factory = session_factory
         self._registry = registry
+        self._policy_engine = policy_engine
 
     async def list_agent_tools(
         self,
@@ -734,8 +738,10 @@ class ToolRuntime:
         call_ordinal: int,
         idempotency_key: str,
         arguments: dict[str, object],
+        approval_required: bool,
+        denied: bool = False,
+        error_code: str | None = None,
     ) -> ToolExecution:
-        approval_required = self._approval_required(tool)
         async with self._session_factory() as db:
             execution = ToolExecution(
                 tenant_id=tool.tenant_id,
@@ -745,16 +751,25 @@ class ToolRuntime:
                 call_ordinal=call_ordinal,
                 idempotency_key=idempotency_key,
                 status=(
-                    ToolExecutionStatus.APPROVAL_REQUIRED.value
-                    if approval_required
-                    else ToolExecutionStatus.PENDING.value
+                    ToolExecutionStatus.DENIED.value
+                    if denied
+                    else (
+                        ToolExecutionStatus.APPROVAL_REQUIRED.value
+                        if approval_required
+                        else ToolExecutionStatus.PENDING.value
+                    )
                 ),
                 approval_status=(
-                    ToolApprovalStatus.PENDING.value
-                    if approval_required
-                    else ToolApprovalStatus.NOT_REQUIRED.value
+                    ToolApprovalStatus.DENIED.value
+                    if denied
+                    else (
+                        ToolApprovalStatus.PENDING.value
+                        if approval_required
+                        else ToolApprovalStatus.NOT_REQUIRED.value
+                    )
                 ),
                 input_payload=arguments,
+                error_code=error_code[:100] if error_code is not None else None,
             )
             db.add(execution)
             try:
@@ -857,6 +872,23 @@ class ToolRuntime:
         idempotency_key = f"agent:{agent_run_id}:tool:{call_ordinal}"
         execution = await self._load_execution(tenant_id, idempotency_key)
         if execution is None:
+            approval_required = self._approval_required(tool)
+            denied = False
+            policy_error_code: str | None = None
+            if self._policy_engine is not None:
+                try:
+                    policy_decision = await self._policy_engine.evaluate_tool(
+                        tenant_id=tenant_id,
+                        agent_id=agent_id,
+                        tool=tool,
+                        baseline_approval_required=approval_required,
+                    )
+                except PolicyRuntimeError as exc:
+                    raise ToolRuntimeError(exc.code, retryable=True) from exc
+                approval_required = policy_decision.approval_required
+                if policy_decision.action == PolicyDecisionAction.DENY:
+                    denied = True
+                    policy_error_code = policy_decision.reason_code
             execution = await self._create_execution(
                 tool=tool,
                 agent_id=agent_id,
@@ -864,6 +896,9 @@ class ToolRuntime:
                 call_ordinal=call_ordinal,
                 idempotency_key=idempotency_key,
                 arguments=normalized_arguments,
+                approval_required=approval_required,
+                denied=denied,
+                error_code=policy_error_code,
             )
         if execution.tool_id != tool.id or execution.agent_id != agent_id:
             raise ToolRuntimeError("tool_call_replay_mismatch")
@@ -898,10 +933,7 @@ class ToolRuntime:
                 await db.commit()
                 execution = stale
 
-        if (
-            self._approval_required(tool)
-            and execution.approval_status != ToolApprovalStatus.APPROVED.value
-        ):
+        if execution.approval_status == ToolApprovalStatus.PENDING.value:
             return self._result(execution, qualified_name)
 
         await self._mark_running(execution.id, tenant_id)

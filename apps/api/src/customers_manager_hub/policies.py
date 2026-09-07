@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import Annotated, cast
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,7 +17,6 @@ from customers_manager_hub.policy_models import (
     PolicyDecisionAction,
     PolicyDecisionTrace,
     PolicyDecisionType,
-    PolicyMessageAction,
     PolicyToolEffect,
     TenantPolicy,
     ToolPolicyRule,
@@ -215,17 +214,13 @@ async def _ensure_policy_row(
     return row
 
 
-def _session_factory_from_db(db: AsyncSession) -> AsyncSessionFactory:
-    bind = db.bind
-    if bind is None:
-        raise RuntimeError("Database session has no bind")
-    from sqlalchemy.ext.asyncio import async_sessionmaker
-
-    return cast(AsyncSessionFactory, async_sessionmaker(bind, expire_on_commit=False))
+def get_session_factory(request: Request) -> AsyncSessionFactory:
+    return cast(AsyncSessionFactory, request.app.state.db_session_factory)
 
 
 @router.get("", response_model=TenantPolicyResponse)
 async def get_policy(
+    request: Request,
     context: TenantContextDependency,
     db: DbSession,
 ) -> TenantPolicyResponse:
@@ -233,7 +228,7 @@ async def get_policy(
     if row is not None:
         return _policy_response(row)
     effective = await load_effective_tenant_policy(
-        _session_factory_from_db(db),
+        get_session_factory(request),
         context.tenant.id,
     )
     return _effective_policy_response(effective)
@@ -338,6 +333,7 @@ async def list_tool_policy_rules(
 async def put_tool_policy_rule(
     tool_id: UUID,
     payload: ToolPolicyRulePut,
+    request: Request,
     context: TenantContextDependency,
     db: DbSession,
 ) -> ToolPolicyRuleResponse:
@@ -360,7 +356,7 @@ async def put_tool_policy_rule(
     else:
         rule.effect = payload.effect.value
         rule.approval_mode = payload.approval_mode.value
-    policy = await _ensure_policy_row(db, _session_factory_from_db(db), context.tenant.id)
+    policy = await _ensure_policy_row(db, get_session_factory(request), context.tenant.id)
     policy.revision += 1
     await db.flush()
     db.add(
@@ -386,6 +382,7 @@ async def put_tool_policy_rule(
 @router.delete("/tool-rules/{tool_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_tool_policy_rule(
     tool_id: UUID,
+    request: Request,
     context: TenantContextDependency,
     db: DbSession,
 ) -> Response:
@@ -398,7 +395,7 @@ async def delete_tool_policy_rule(
     )
     if rule is None:
         return Response(status_code=status.HTTP_204_NO_CONTENT)
-    policy = await _ensure_policy_row(db, _session_factory_from_db(db), context.tenant.id)
+    policy = await _ensure_policy_row(db, get_session_factory(request), context.tenant.id)
     policy.revision += 1
     rule_id = rule.id
     await db.delete(rule)

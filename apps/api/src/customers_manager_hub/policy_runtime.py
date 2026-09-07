@@ -319,7 +319,9 @@ class PolicyEngine:
 
     async def evaluate_message_event(self, event_id: UUID) -> PolicyDecision:
         async with self._session_factory() as db:
-            event = await db.scalar(select(ChannelInboundEvent).where(ChannelInboundEvent.id == event_id))
+            event = await db.scalar(
+                select(ChannelInboundEvent).where(ChannelInboundEvent.id == event_id)
+            )
             if event is None:
                 raise PolicyRuntimeError("policy_event_missing")
             if event.message_id is None:
@@ -374,7 +376,9 @@ class PolicyEngine:
         evaluated_at: datetime | None = None,
     ) -> PolicyDecision:
         async with self._session_factory() as db:
-            event = await db.scalar(select(ChannelInboundEvent).where(ChannelInboundEvent.id == event_id))
+            event = await db.scalar(
+                select(ChannelInboundEvent).where(ChannelInboundEvent.id == event_id)
+            )
             if event is None:
                 raise PolicyRuntimeError("policy_event_missing")
             if event.message_id is None:
@@ -440,7 +444,9 @@ class PolicyEngine:
                 policy_revision=policy.revision,
                 decision_type=PolicyDecisionType.BUSINESS_HOURS,
                 action=PolicyDecisionAction.ALLOW,
-                reason_code=("within_business_hours" if within_hours else "outside_business_hours_allowed"),
+                reason_code=(
+                    "within_business_hours" if within_hours else "outside_business_hours_allowed"
+                ),
                 conversation_id=conversation_id,
                 message_id=message_id,
                 safe_context={"timezone": policy.timezone},

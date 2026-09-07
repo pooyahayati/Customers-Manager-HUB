@@ -19,7 +19,11 @@ from customers_manager_hub.channel_runtime import (
 )
 from customers_manager_hub.config import Settings, get_settings
 from customers_manager_hub.database import AsyncSessionFactory, create_database
-from customers_manager_hub.handoff_runtime import HandoffRuntimeError, evaluate_event_escalation
+from customers_manager_hub.handoff_runtime import (
+    HandoffRuntimeError,
+    evaluate_event_escalation,
+    request_event_handoff,
+)
 from customers_manager_hub.health import check_postgres, check_redis
 from customers_manager_hub.knowledge_queue import KnowledgeJob, KnowledgeJobQueue
 from customers_manager_hub.knowledge_runtime import (
@@ -33,6 +37,8 @@ from customers_manager_hub.memory_runtime import (
     MemoryRuntimeError,
     extract_customer_memory_from_event,
 )
+from customers_manager_hub.policy_models import PolicyDecisionAction
+from customers_manager_hub.policy_runtime import PolicyEngine, PolicyRuntimeError
 from customers_manager_hub.telegram import TelegramAdapter
 from customers_manager_hub.tool_runtime import ToolRuntime, build_tool_adapter_registry
 from customers_manager_hub.voice_runtime import (
@@ -65,7 +71,25 @@ async def process_job(
     tool_runtime: ToolRuntime | None = None,
     knowledge_runtime: KnowledgeRuntime | None = None,
     voice_downloader: TelegramVoiceMediaDownloader | None = None,
+    policy_engine: PolicyEngine | None = None,
 ) -> None:
+    policy_message_handoff_reason: str | None = None
+    if policy_engine is not None:
+        try:
+            message_decision = await policy_engine.evaluate_message_event(job.event_id)
+        except PolicyRuntimeError as exc:
+            logger.error(
+                "message policy evaluation failed",
+                extra={"event_id": str(job.event_id), "error_code": exc.code},
+            )
+            return
+        if message_decision.action == PolicyDecisionAction.DENY:
+            await mark_event_ignored(session_factory, job.event_id, message_decision.reason_code)
+            await queue.acknowledge(job.stream_id)
+            return
+        if message_decision.action == PolicyDecisionAction.HANDOFF:
+            policy_message_handoff_reason = message_decision.reason_code
+
     try:
         await process_channel_event(session_factory, channel_registry, settings, job.event_id)
     except ChannelProviderError as exc:
@@ -115,10 +139,27 @@ async def process_job(
                 )
                 return
         try:
-            handoff_id = await evaluate_event_escalation(session_factory, job.event_id)
-        except HandoffRuntimeError as exc:
+            if policy_engine is None:
+                handoff_id = await evaluate_event_escalation(session_factory, job.event_id)
+            elif policy_message_handoff_reason is not None:
+                handoff_id = await request_event_handoff(
+                    session_factory,
+                    job.event_id,
+                    reason_code=policy_message_handoff_reason,
+                )
+            else:
+                ai_decision = await policy_engine.evaluate_ai_event(job.event_id)
+                if ai_decision.action == PolicyDecisionAction.HANDOFF:
+                    handoff_id = await request_event_handoff(
+                        session_factory,
+                        job.event_id,
+                        reason_code=ai_decision.reason_code,
+                    )
+                else:
+                    handoff_id = None
+        except (HandoffRuntimeError, PolicyRuntimeError) as exc:
             logger.error(
-                "handoff evaluation failed",
+                "policy or handoff evaluation failed",
                 extra={"event_id": str(job.event_id), "error_code": exc.code},
             )
             return
@@ -238,10 +279,12 @@ async def run_worker_async(settings: Settings, stop_event: asyncio.Event | None 
                 build_live_provider_registry(settings, external_http_client),
                 session_factory,
             )
+            policy_engine = PolicyEngine(session_factory)
             tool_runtime = ToolRuntime(
                 settings,
                 session_factory,
                 build_tool_adapter_registry(external_http_client),
+                policy_engine=policy_engine,
             )
             knowledge_runtime = KnowledgeRuntime(session_factory, ai_gateway)
             knowledge_storage = build_object_storage(settings)
@@ -285,6 +328,7 @@ async def run_worker_async(settings: Settings, stop_event: asyncio.Event | None 
                         tool_runtime,
                         knowledge_runtime,
                         voice_downloader,
+                        policy_engine,
                     )
     finally:
         await redis_client.aclose()

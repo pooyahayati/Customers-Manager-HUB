@@ -101,7 +101,9 @@ class TenantPolicy(Base):
     handoff_keywords: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
     handoff_on_tool_approval: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     approval_min_risk: Mapped[str] = mapped_column(String(16), nullable=False, default="high")
-    require_approval_for_writes: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    require_approval_for_writes: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -131,7 +133,9 @@ class ToolPolicyRule(Base):
     id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
     tenant_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
     tool_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
-    effect: Mapped[str] = mapped_column(String(16), nullable=False, default=PolicyToolEffect.ALLOW.value)
+    effect: Mapped[str] = mapped_column(
+        String(16), nullable=False, default=PolicyToolEffect.ALLOW.value
+    )
     approval_mode: Mapped[str] = mapped_column(
         String(16), nullable=False, default=PolicyApprovalMode.INHERIT.value
     )

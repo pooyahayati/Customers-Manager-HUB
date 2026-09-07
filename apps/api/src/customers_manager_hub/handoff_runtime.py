@@ -194,6 +194,38 @@ async def request_handoff(
     raise HandoffRuntimeError("handoff_request_race")
 
 
+async def request_event_handoff(
+    session_factory: AsyncSessionFactory,
+    event_id: UUID,
+    *,
+    reason_code: str,
+) -> UUID:
+    async with session_factory() as db:
+        event = await db.scalar(
+            select(ChannelInboundEvent).where(ChannelInboundEvent.id == event_id)
+        )
+        if event is None or event.message_id is None:
+            raise HandoffRuntimeError("handoff_event_missing")
+        message = await db.scalar(
+            select(Message).where(
+                Message.id == event.message_id,
+                Message.tenant_id == event.tenant_id,
+            )
+        )
+        if message is None:
+            raise HandoffRuntimeError("handoff_event_message_missing")
+        tenant_id = event.tenant_id
+        conversation_id = message.conversation_id
+    handoff = await request_handoff(
+        session_factory,
+        tenant_id=tenant_id,
+        conversation_id=conversation_id,
+        request_source=HandoffRequestSource.SYSTEM,
+        reason_code=reason_code,
+    )
+    return handoff.id
+
+
 async def evaluate_event_escalation(
     session_factory: AsyncSessionFactory,
     event_id: UUID,
