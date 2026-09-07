@@ -84,7 +84,9 @@ def upgrade() -> None:
             ondelete="CASCADE",
             name="fk_knowledge_sources_base_tenant",
         ),
-        sa.ForeignKeyConstraint(["created_by_user_id"], ["platform_users.id"], ondelete="SET NULL"),
+        sa.ForeignKeyConstraint(
+            ["created_by_user_id"], ["platform_users.id"], ondelete="SET NULL"
+        ),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("object_key"),
         sa.UniqueConstraint(
@@ -210,7 +212,9 @@ def upgrade() -> None:
         sa.Column(
             "created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False
         ),
-        sa.CheckConstraint("embedding_dimension > 0", name="ck_knowledge_retrieval_dimension"),
+        sa.CheckConstraint(
+            "embedding_dimension > 0", name="ck_knowledge_retrieval_dimension"
+        ),
         sa.CheckConstraint("latency_ms >= 0", name="ck_knowledge_retrieval_latency"),
         sa.ForeignKeyConstraint(["tenant_id"], ["tenants.id"], ondelete="CASCADE"),
         sa.ForeignKeyConstraint(["agent_run_id"], ["agent_runs.id"], ondelete="SET NULL"),
