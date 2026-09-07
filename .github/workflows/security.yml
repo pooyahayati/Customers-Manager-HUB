@@ -70,10 +70,11 @@ jobs:
           set -euo pipefail
           mkdir -p /tmp/cmh-trivy
           for service in api web postgres; do
-            image_id=$(docker compose -f compose.yaml images -q "$service")
-            test -n "$image_id"
+            image_name=$(docker compose -f compose.yaml config --images "$service")
+            test -n "$image_name"
+            docker image inspect "$image_name" >/dev/null
             archive="/tmp/cmh-trivy/${service}.tar"
-            docker save "$image_id" --output "$archive"
+            docker save --output "$archive" "$image_name"
             docker run --rm \
               -v /tmp/cmh-trivy:/scan:ro \
               aquasec/trivy:0.74.0 \
