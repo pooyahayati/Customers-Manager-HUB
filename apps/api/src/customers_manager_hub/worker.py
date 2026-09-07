@@ -29,7 +29,10 @@ from customers_manager_hub.knowledge_runtime import (
 )
 from customers_manager_hub.knowledge_storage import ObjectStorage, build_object_storage
 from customers_manager_hub.logging_config import configure_logging
-from customers_manager_hub.memory_runtime import MemoryRuntimeError, extract_customer_memory_from_event
+from customers_manager_hub.memory_runtime import (
+    MemoryRuntimeError,
+    extract_customer_memory_from_event,
+)
 from customers_manager_hub.telegram import TelegramAdapter
 from customers_manager_hub.tool_runtime import ToolRuntime, build_tool_adapter_registry
 from customers_manager_hub.voice_runtime import (

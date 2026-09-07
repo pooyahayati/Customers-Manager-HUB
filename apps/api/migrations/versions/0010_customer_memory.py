@@ -67,15 +67,11 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(
             ["source_conversation_id"], ["conversations.id"], ondelete="SET NULL"
         ),
-        sa.ForeignKeyConstraint(
-            ["created_by_user_id"], ["platform_users.id"], ondelete="SET NULL"
-        ),
+        sa.ForeignKeyConstraint(["created_by_user_id"], ["platform_users.id"], ondelete="SET NULL"),
         sa.ForeignKeyConstraint(
             ["verified_by_user_id"], ["platform_users.id"], ondelete="SET NULL"
         ),
-        sa.ForeignKeyConstraint(
-            ["deleted_by_user_id"], ["platform_users.id"], ondelete="SET NULL"
-        ),
+        sa.ForeignKeyConstraint(["deleted_by_user_id"], ["platform_users.id"], ondelete="SET NULL"),
         sa.PrimaryKeyConstraint("id"),
     )
     op.create_index(

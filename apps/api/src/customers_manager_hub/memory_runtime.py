@@ -103,7 +103,7 @@ def _memory_schema() -> dict[str, object]:
     }
 
 
-def _normalize_value(category: MemoryCategory, value: str) -> str:
+def normalize_memory_value(category: MemoryCategory, value: str) -> str:
     normalized = " ".join(value.replace("\x00", " ").split())
     if not normalized:
         raise MemoryRuntimeError("memory_value_blank")
@@ -119,7 +119,7 @@ def _normalize_value(category: MemoryCategory, value: str) -> str:
     return normalized
 
 
-def _candidate_dedupe_key(category: MemoryCategory, value: str) -> str:
+def memory_dedupe_key(category: MemoryCategory, value: str) -> str:
     if category in _SINGLETON_CATEGORIES:
         return "singleton"
     normalized = value.casefold().encode("utf-8")
@@ -133,8 +133,11 @@ def _candidate_expiry(category: MemoryCategory, observed_at: datetime) -> dateti
 def _parse_candidates(payload: dict[str, object] | None) -> tuple[MemoryCandidate, ...]:
     if payload is None or set(payload) != {"items"}:
         raise MemoryRuntimeError("memory_extraction_invalid", retryable=True)
-    raw_items = payload.get("items")
-    if not isinstance(raw_items, list) or len(raw_items) > 8:
+    raw_items_value = payload.get("items")
+    if not isinstance(raw_items_value, list):
+        raise MemoryRuntimeError("memory_extraction_invalid", retryable=True)
+    raw_items = cast(list[object], raw_items_value)
+    if len(raw_items) > 8:
         raise MemoryRuntimeError("memory_extraction_invalid", retryable=True)
 
     candidates: list[MemoryCandidate] = []
@@ -165,7 +168,7 @@ def _parse_candidates(payload: dict[str, object] | None) -> tuple[MemoryCandidat
         if confidence < 0 or confidence > 1:
             raise MemoryRuntimeError("memory_extraction_invalid", retryable=True)
         try:
-            value = _normalize_value(category, value_raw)
+            value = normalize_memory_value(category, value_raw)
         except MemoryRuntimeError:
             continue
         candidates.append(
@@ -253,7 +256,9 @@ async def extract_customer_memory_from_event(
     event_id: UUID,
 ) -> int:
     async with session_factory() as db:
-        event = await db.scalar(select(ChannelInboundEvent).where(ChannelInboundEvent.id == event_id))
+        event = await db.scalar(
+            select(ChannelInboundEvent).where(ChannelInboundEvent.id == event_id)
+        )
         if event is None:
             raise MemoryRuntimeError("memory_channel_event_missing")
         if event.message_id is None:
@@ -319,7 +324,6 @@ async def extract_customer_memory_from_event(
         raise MemoryRuntimeError(exc.code, retryable=exc.retryable) from exc
 
     candidates = _parse_candidates(result.structured)
-    now = datetime.now(UTC)
     written = 0
     async with session_factory() as db:
         existing_marker = await db.scalar(
@@ -332,7 +336,7 @@ async def extract_customer_memory_from_event(
             return 0
 
         for candidate in candidates:
-            dedupe_key = _candidate_dedupe_key(candidate.category, candidate.value)
+            dedupe_key = memory_dedupe_key(candidate.category, candidate.value)
             existing = await db.scalar(
                 select(CustomerMemoryItem).where(
                     CustomerMemoryItem.tenant_id == tenant_id,
@@ -432,14 +436,8 @@ async def build_customer_memory_context(
                             CustomerMemoryItem.expires_at > now,
                         ),
                         or_(
-                            (
-                                CustomerMemoryItem.evidence_kind
-                                == MemoryEvidenceKind.FACT.value
-                            )
-                            & (
-                                CustomerMemoryItem.confidence
-                                >= _MEMORY_FACT_CONFIDENCE_THRESHOLD
-                            ),
+                            (CustomerMemoryItem.evidence_kind == MemoryEvidenceKind.FACT.value)
+                            & (CustomerMemoryItem.confidence >= _MEMORY_FACT_CONFIDENCE_THRESHOLD),
                             CustomerMemoryItem.verified_at.is_not(None),
                         ),
                     )

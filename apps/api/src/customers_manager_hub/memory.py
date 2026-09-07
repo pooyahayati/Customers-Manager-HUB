@@ -18,8 +18,8 @@ from customers_manager_hub.memory_models import (
 )
 from customers_manager_hub.memory_runtime import (
     MemoryRuntimeError,
-    _candidate_dedupe_key,
-    _normalize_value,
+    memory_dedupe_key,
+    normalize_memory_value,
 )
 from customers_manager_hub.models import AuditEvent, TenantRole
 from customers_manager_hub.tenants import TenantContextDependency, require_tenant_role
@@ -155,7 +155,7 @@ async def create_customer_memory(
     await load_contact(db, context.tenant.id, contact_id)
     now = datetime.now(UTC)
     try:
-        value = _normalize_value(payload.category, payload.value)
+        value = normalize_memory_value(payload.category, payload.value)
     except MemoryRuntimeError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -171,7 +171,7 @@ async def create_customer_memory(
         contact_id=contact_id,
         category=payload.category.value,
         value=value,
-        dedupe_key=_candidate_dedupe_key(payload.category, value),
+        dedupe_key=memory_dedupe_key(payload.category, value),
         evidence_kind=payload.evidence_kind.value,
         confidence=payload.confidence,
         source_type=MemorySourceType.MANUAL.value,
@@ -224,14 +224,14 @@ async def update_customer_memory(
     if payload.value is not None:
         category = MemoryCategory(item.category)
         try:
-            value = _normalize_value(category, payload.value)
+            value = normalize_memory_value(category, payload.value)
         except MemoryRuntimeError as exc:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail=exc.code,
             ) from exc
         item.value = value
-        item.dedupe_key = _candidate_dedupe_key(category, value)
+        item.dedupe_key = memory_dedupe_key(category, value)
         changed = True
     if payload.evidence_kind is not None:
         item.evidence_kind = payload.evidence_kind.value

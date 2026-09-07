@@ -40,6 +40,7 @@ from customers_manager_hub.knowledge_runtime import (
     KnowledgeRuntime,
     KnowledgeRuntimeError,
 )
+from customers_manager_hub.memory_runtime import build_customer_memory_context
 from customers_manager_hub.models import (
     Message,
     MessageAuthorType,
@@ -767,6 +768,13 @@ async def process_agent_event(
                 current_message_id=snapshot.inbound_message_id,
                 current_text=snapshot.current_text,
             )
+            memory_context = await build_customer_memory_context(
+                session_factory,
+                tenant_id=snapshot.tenant_id,
+                conversation_id=snapshot.conversation_id,
+            )
+            if memory_context:
+                model_input += "\n\n" + memory_context
             try:
                 if knowledge_runtime is not None:
                     retrieval = await _retrieve_knowledge_with_lease_renewal(
