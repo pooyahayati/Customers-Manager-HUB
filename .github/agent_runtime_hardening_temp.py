@@ -59,7 +59,7 @@ if "class LeaseObservingAIProvider(" not in content:
 insert_before = '''
 def test_retryable_ai_failure_is_reclaimed_and_terminal_output_failure_is_acked() -> None:
 '''
-new_test = '''
+new_test = r'''
 
 def test_long_generation_renews_lease_and_context_budget_is_enforced() -> None:
     adapter = FakeTelegramAdapter()
