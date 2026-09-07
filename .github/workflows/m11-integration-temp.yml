@@ -1,0 +1,98 @@
+name: M11 Integration Temporary
+
+on:
+  push:
+    branches: [feat/human-handoff]
+
+permissions:
+  contents: read
+
+jobs:
+  integration:
+    runs-on: ubuntu-24.04
+    env:
+      DATABASE_URL: postgresql+psycopg://cmh:change-me@localhost:5432/customers_manager_hub
+      REDIS_URL: redis://localhost:6379/0
+      RUN_DB_INTEGRATION: "1"
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version-file: .python-version
+      - uses: astral-sh/setup-uv@v6
+      - name: Apply staged M11 source
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import textwrap
+
+          workflow = Path('.github/workflows/m11-stage2-temp.yml').read_text()
+          marker = "          python - <<'PY'\n"
+          if marker not in workflow:
+              raise SystemExit('stage2 source patch block missing')
+          block = workflow.split(marker, 1)[1].split("\n          PY", 1)[0]
+          exec(textwrap.dedent(block), {})
+          PY
+      - run: uv sync --frozen
+      - name: Start PostgreSQL and Redis
+        run: |
+          docker compose up -d --build postgres redis
+          for i in {1..30}; do
+            pg_status=$(docker inspect --format='{{.State.Health.Status}}' cmh-postgres 2>/dev/null || true)
+            redis_status=$(docker inspect --format='{{.State.Health.Status}}' cmh-redis 2>/dev/null || true)
+            if [ "$pg_status" = healthy ] && [ "$redis_status" = healthy ]; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker compose ps
+          docker compose logs postgres redis
+          exit 1
+      - name: Migration upgrade and drift check
+        run: |
+          uv run alembic -c apps/api/alembic.ini upgrade head
+          uv run alembic -c apps/api/alembic.ini check
+      - name: M11 integration tests
+        run: uv run pytest -q apps/api/tests/test_handoff_integration.py
+      - name: Full API regression with DB integration
+        run: uv run pytest -q apps/api/tests
+      - name: Static final gate
+        run: |
+          uv run ruff check apps/api/src apps/api/tests apps/api/migrations
+          uv run ruff format --check apps/api/src apps/api/tests apps/api/migrations
+          uv run pyright apps/api/src apps/api/tests
+      - name: API image build
+        run: docker build -f apps/api/Dockerfile -t cmh-api:m11 .
+      - name: Verify API image user and migration
+        run: |
+          test "$(docker image inspect cmh-api:m11 --format '{{.Config.User}}')" != ""
+          test "$(docker image inspect cmh-api:m11 --format '{{.Config.User}}')" != "root"
+          docker run --rm --network host \
+            -e DATABASE_URL="$DATABASE_URL" \
+            -e REDIS_URL="$REDIS_URL" \
+            cmh-api:m11 alembic -c apps/api/alembic.ini upgrade head
+      - name: Compose smoke
+        env:
+          API_PORT: "18000"
+          WEB_PORT: "13000"
+          S3_PORT: "18333"
+        run: |
+          docker compose up -d --build api worker object-storage
+          for i in {1..30}; do
+            if curl -fsS http://127.0.0.1:18000/ready >/dev/null; then
+              break
+            fi
+            sleep 2
+          done
+          curl -fsS http://127.0.0.1:18000/ready
+          test "$(docker inspect --format='{{.Config.User}}' $(docker compose ps -q api))" != "root"
+          test "$(docker inspect --format='{{.Config.User}}' $(docker compose ps -q worker))" != "root"
+          test "$(docker inspect --format='{{.State.Status}}' $(docker compose ps -q worker))" = "running"
+      - name: Diagnostics
+        if: failure()
+        run: |
+          docker compose ps || true
+          docker compose logs --tail=200 postgres redis api worker object-storage || true
+      - name: Cleanup
+        if: always()
+        run: docker compose down -v --remove-orphans || true
