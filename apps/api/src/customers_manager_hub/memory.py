@@ -267,11 +267,6 @@ async def update_customer_memory(
         changed = True
 
     if changed:
-        item.source_type = MemorySourceType.MANUAL.value
-        item.created_by_user_id = context.current.user.id
-        item.source_message_id = None
-        item.source_conversation_id = None
-        item.observed_at = now
         db.add(
             AuditEvent(
                 tenant_id=context.tenant.id,
