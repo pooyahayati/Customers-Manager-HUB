@@ -48,6 +48,11 @@ jobs:
           value = value.replace('_candidate_dedupe_key', 'memory_dedupe_key')
           value = value.replace('_normalize_value', 'normalize_memory_value')
           value = value.replace('    now = datetime.now(UTC)\n    written = 0\n', '    written = 0\n')
+          old_items = '''    raw_items = payload.get("items")\n    if not isinstance(raw_items, list) or len(raw_items) > 8:\n        raise MemoryRuntimeError("memory_extraction_invalid", retryable=True)\n\n    candidates: list[MemoryCandidate] = []\n    for raw_item in raw_items:\n'''
+          new_items = '''    raw_items_value = payload.get("items")\n    if not isinstance(raw_items_value, list):\n        raise MemoryRuntimeError("memory_extraction_invalid", retryable=True)\n    raw_items = cast(list[object], raw_items_value)\n    if len(raw_items) > 8:\n        raise MemoryRuntimeError("memory_extraction_invalid", retryable=True)\n\n    candidates: list[MemoryCandidate] = []\n    for raw_item in raw_items:\n'''
+          if old_items not in value and new_items not in value:
+              raise SystemExit('memory item typing anchor not found')
+          value = value.replace(old_items, new_items)
           memory_runtime.write_text(value)
 
           memory_api = Path('apps/api/src/customers_manager_hub/memory.py')
