@@ -45,47 +45,46 @@ jobs:
       - uses: astral-sh/setup-uv@v6
       - run: uv sync --frozen
 
-      - name: Apply final M12 fixes
+      - name: Preserve memory provenance and monotonic freshness
         run: |
           python - <<'PY'
           from pathlib import Path
 
           api = Path('apps/api/src/customers_manager_hub/memory.py')
           text = api.read_text()
-
-          text = text.replace(
-              'class MemoryUpdate(BaseModel):\n    value: str | None = Field(default=None, min_length=1, max_length=1_000)\n',
-              'class MemoryUpdate(BaseModel):\n    category: MemoryCategory | None = None\n    value: str | None = Field(default=None, min_length=1, max_length=1_000)\n',
-          )
-
-          old_flush = '''    db.add(item)\n    await db.flush()\n    db.add(\n        AuditEvent(\n'''
-          new_flush = '''    db.add(item)\n    try:\n        await db.flush()\n    except IntegrityError as exc:\n        await db.rollback()\n        raise HTTPException(\n            status_code=status.HTTP_409_CONFLICT,\n            detail="An active memory item already exists for this category/value",\n        ) from exc\n    db.add(\n        AuditEvent(\n'''
-          if old_flush not in text and new_flush not in text:
-              raise SystemExit('create flush anchor not found')
-          text = text.replace(old_flush, new_flush, 1)
-
-          old_update = '''    changed = False\n    if payload.value is not None:\n        category = MemoryCategory(item.category)\n        try:\n            value = normalize_memory_value(category, payload.value)\n        except MemoryRuntimeError as exc:\n            raise HTTPException(\n                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,\n                detail=exc.code,\n            ) from exc\n        item.value = value\n        item.dedupe_key = memory_dedupe_key(category, value)\n        changed = True\n'''
-          new_update = '''    changed = False\n    if payload.category is not None or payload.value is not None:\n        category = payload.category or MemoryCategory(item.category)\n        source_value = payload.value if payload.value is not None else item.value\n        try:\n            value = normalize_memory_value(category, source_value)\n        except MemoryRuntimeError as exc:\n            raise HTTPException(\n                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,\n                detail=exc.code,\n            ) from exc\n        item.category = category.value\n        item.value = value\n        item.dedupe_key = memory_dedupe_key(category, value)\n        changed = True\n'''
-          if old_update not in text and new_update not in text:
-              raise SystemExit('update category anchor not found')
-          text = text.replace(old_update, new_update)
+          old = '''    if changed:\n        item.source_type = MemorySourceType.MANUAL.value\n        item.created_by_user_id = context.current.user.id\n        item.source_message_id = None\n        item.source_conversation_id = None\n        item.observed_at = now\n        db.add(\n            AuditEvent(\n'''
+          new = '''    if changed:\n        db.add(\n            AuditEvent(\n'''
+          if old not in text and new not in text:
+              raise SystemExit('API provenance anchor not found')
+          text = text.replace(old, new)
           api.write_text(text)
+
+          runtime = Path('apps/api/src/customers_manager_hub/memory_runtime.py')
+          value = runtime.read_text()
+          old = '''            if existing is not None:\n                if (\n                    existing.source_type == MemorySourceType.MANUAL.value\n                    and existing.verified_at is not None\n                ):\n                    continue\n                existing.value = candidate.value\n                existing.evidence_kind = candidate.evidence_kind.value\n                existing.confidence = candidate.confidence\n                existing.source_type = MemorySourceType.CUSTOMER_MESSAGE.value\n                existing.source_message_id = source_message_id\n                existing.source_conversation_id = conversation_id\n                existing.created_by_user_id = None\n                existing.observed_at = observed_at\n                existing.expires_at = expires_at\n                existing.verified_at = None\n                existing.verified_by_user_id = None\n                written += 1\n                continue\n'''
+          new = '''            if existing is not None:\n                if existing.source_type == MemorySourceType.MANUAL.value:\n                    continue\n                if existing.observed_at > observed_at:\n                    continue\n                preserve_verification = (\n                    existing.value.casefold() == candidate.value.casefold()\n                    and existing.evidence_kind == candidate.evidence_kind.value\n                )\n                existing.value = candidate.value\n                existing.evidence_kind = candidate.evidence_kind.value\n                existing.confidence = candidate.confidence\n                existing.source_type = MemorySourceType.CUSTOMER_MESSAGE.value\n                existing.source_message_id = source_message_id\n                existing.source_conversation_id = conversation_id\n                existing.created_by_user_id = None\n                existing.observed_at = observed_at\n                existing.expires_at = expires_at\n                if not preserve_verification:\n                    existing.verified_at = None\n                    existing.verified_by_user_id = None\n                written += 1\n                continue\n'''
+          if old not in value and new not in value:
+              raise SystemExit('runtime provenance anchor not found')
+          value = value.replace(old, new)
+          runtime.write_text(value)
 
           tests = Path('apps/api/tests/test_memory_integration.py')
           test_text = tests.read_text()
-          duplicate_anchor = '''        memory_id = created.json()["id"]\n        assert created.json()["source_type"] == "manual"\n        assert created.json()["verified_at"] is not None\n\n        updated = client_a.patch(\n'''
-          duplicate_block = '''        memory_id = created.json()["id"]\n        assert created.json()["source_type"] == "manual"\n        assert created.json()["verified_at"] is not None\n\n        duplicate = client_a.post(\n            f"/api/v1/tenants/{tenant_a}/contacts/{contact_id}/memories",\n            json={\n                "category": "preferred_language",\n                "value": "Persian",\n                "evidence_kind": "fact",\n                "confidence": 1.0,\n            },\n        )\n        assert duplicate.status_code == 409\n\n        updated = client_a.patch(\n'''
-          if duplicate_anchor in test_text:
-              test_text = test_text.replace(duplicate_anchor, duplicate_block)
-          elif 'assert duplicate.status_code == 409' not in test_text:
-              raise SystemExit('duplicate test anchor not found')
+          anchor = '''        interest = by_category[MemoryCategory.PRODUCT_INTEREST.value]\n        assert interest.evidence_kind == MemoryEvidenceKind.INFERENCE.value\n        assert interest.verified_at is None\n        assert db.scalar(\n'''
+          replacement = '''        interest = by_category[MemoryCategory.PRODUCT_INTEREST.value]\n        assert interest.evidence_kind == MemoryEvidenceKind.INFERENCE.value\n        assert interest.verified_at is None\n        interest_id = interest.id\n        assert db.scalar(\n'''
+          if anchor in test_text:
+              test_text = test_text.replace(anchor, replacement)
+          elif 'interest_id = interest.id' not in test_text:
+              raise SystemExit('inference id anchor not found')
 
-          update_anchor = '''            json={"value": "Farsi", "confidence": 0.95},\n        )\n        assert updated.status_code == 200\n        assert updated.json()["value"] == "Farsi"\n'''
-          update_block = '''            json={\n                "category": "detail_level",\n                "value": "detailed",\n                "confidence": 0.95,\n            },\n        )\n        assert updated.status_code == 200\n        assert updated.json()["category"] == "detail_level"\n        assert updated.json()["value"] == "detailed"\n'''
-          if update_anchor in test_text:
-              test_text = test_text.replace(update_anchor, update_block)
-          elif 'assert updated.json()["category"] == "detail_level"' not in test_text:
-              raise SystemExit('category update test anchor not found')
+          end_anchor = '''        ) is not None\n'''
+          append_block = '''        ) is not None\n\n    with TestClient(create_app(TEST_SETTINGS)) as client:\n        login(client, "owner@example.com", "owner password")\n        verified = client.patch(\n            f"/api/v1/tenants/{tenant_id}/contacts/{contact_id}/memories/{interest_id}",\n            json={"verified": True},\n        )\n        assert verified.status_code == 200\n        assert verified.json()["source_type"] == "customer_message"\n        assert verified.json()["source_message_id"] == str(message_id)\n        assert verified.json()["source_conversation_id"] is not None\n        assert verified.json()["verified_at"] is not None\n'''
+          if append_block not in test_text:
+              pos = test_text.rfind(end_anchor)
+              if pos < 0:
+                  raise SystemExit('test append anchor not found')
+              pos += len(end_anchor)
+              test_text = test_text[:pos] + append_block[len(end_anchor):] + test_text[pos:]
           tests.write_text(test_text)
           PY
 
@@ -103,7 +102,7 @@ jobs:
         run: uv run pytest apps/api/tests/test_*_integration.py -q
       - name: Unit regression
         run: env -u ENCRYPTION_KEY RUN_DB_INTEGRATION=0 uv run pytest apps/api/tests -q
-      - name: Commit normalized M12 source
+      - name: Commit provenance-safe M12 source
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -111,5 +110,5 @@ jobs:
           if git diff --cached --quiet; then
             exit 0
           fi
-          git commit -m "feat: finalize M12 customer memory runtime"
+          git commit -m "fix: preserve customer memory provenance"
           git push origin HEAD:feat/m12-customer-memory
