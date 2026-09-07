@@ -31,6 +31,7 @@ class PromptVersionStatus(StrEnum):
 class AgentRunStatus(StrEnum):
     PENDING = "pending"
     GENERATED = "generated"
+    PAUSED = "paused"
     SUCCEEDED = "succeeded"
     FAILED = "failed"
 
@@ -173,7 +174,7 @@ class AgentRun(Base):
     __tablename__ = "agent_runs"
     __table_args__ = (
         CheckConstraint(
-            "status IN ('pending', 'generated', 'succeeded', 'failed')",
+            "status IN ('pending', 'generated', 'paused', 'succeeded', 'failed')",
             name="ck_agent_runs_status",
         ),
         UniqueConstraint(
