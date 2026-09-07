@@ -321,23 +321,23 @@ def test_pricing_rbac_audit_and_tenant_isolation() -> None:
     tenant_id, _ = seed_tenant_user(
         slug="analytics-a",
         email="owner-a@example.test",
-        password="pass-a",
+        password="AnalyticsPassA123",
     )
     seed_tenant_user(
         slug="unused",
         email="viewer-a@example.test",
-        password="pass-viewer",
+        password="AnalyticsViewer123",
         role=TenantRole.VIEWER,
         tenant_id=tenant_id,
     )
     other_tenant_id, _ = seed_tenant_user(
         slug="analytics-b",
         email="owner-b@example.test",
-        password="pass-b",
+        password="AnalyticsPassB123",
     )
 
     with TestClient(create_app(TEST_SETTINGS)) as client:
-        login(client, "owner-a@example.test", "pass-a")
+        login(client, "owner-a@example.test", "AnalyticsPassA123")
         created = client.put(
             f"/api/v1/tenants/{tenant_id}/analytics/pricing",
             json={
@@ -356,7 +356,7 @@ def test_pricing_rbac_audit_and_tenant_isolation() -> None:
         assert listed.status_code == 200
         assert len(listed.json()) == 1
 
-        login(client, "viewer-a@example.test", "pass-viewer")
+        login(client, "viewer-a@example.test", "AnalyticsViewer123")
         denied = client.put(
             f"/api/v1/tenants/{tenant_id}/analytics/pricing",
             json={
@@ -370,7 +370,7 @@ def test_pricing_rbac_audit_and_tenant_isolation() -> None:
         )
         assert denied.status_code == 403
 
-        login(client, "owner-b@example.test", "pass-b")
+        login(client, "owner-b@example.test", "AnalyticsPassB123")
         cross_tenant = client.get(f"/api/v1/tenants/{tenant_id}/analytics/pricing")
         assert cross_tenant.status_code in {403, 404}
         own_tenant = client.get(f"/api/v1/tenants/{other_tenant_id}/analytics/pricing")
@@ -393,12 +393,12 @@ def test_ai_usage_uses_effective_dated_pricing_and_reports_unpriced_usage() -> N
     tenant_id, _ = seed_tenant_user(
         slug="analytics-cost",
         email="cost@example.test",
-        password="pass-cost",
+        password="AnalyticsCost123",
     )
     seed_ai_usage(tenant_id)
 
     with TestClient(create_app(TEST_SETTINGS)) as client:
-        login(client, "cost@example.test", "pass-cost")
+        login(client, "cost@example.test", "AnalyticsCost123")
         for effective_from, input_rate in (
             (BASE - timedelta(days=1), "1"),
             (BASE + timedelta(hours=1), "2"),
@@ -436,12 +436,12 @@ def test_overview_and_tool_metrics_are_conversation_level_and_payload_safe() -> 
     tenant_id, _ = seed_tenant_user(
         slug="analytics-ops",
         email="ops@example.test",
-        password="pass-ops",
+        password="AnalyticsOps123",
     )
     seed_operational_data(tenant_id)
 
     with TestClient(create_app(TEST_SETTINGS)) as client:
-        login(client, "ops@example.test", "pass-ops")
+        login(client, "ops@example.test", "AnalyticsOps123")
         overview = client.get(
             f"/api/v1/tenants/{tenant_id}/analytics/overview",
             params=report_params(),
@@ -479,10 +479,10 @@ def test_report_window_validation_rejects_naive_and_oversized_ranges() -> None:
     tenant_id, _ = seed_tenant_user(
         slug="analytics-window",
         email="window@example.test",
-        password="pass-window",
+        password="AnalyticsWindow123",
     )
     with TestClient(create_app(TEST_SETTINGS)) as client:
-        login(client, "window@example.test", "pass-window")
+        login(client, "window@example.test", "AnalyticsWindow123")
         naive = client.get(
             f"/api/v1/tenants/{tenant_id}/analytics/overview",
             params={"from": "2026-09-01T00:00:00", "to": "2026-09-02T00:00:00Z"},
