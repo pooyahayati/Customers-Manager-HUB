@@ -93,6 +93,11 @@ def channel_instruction(channel_type: ChannelType) -> str:
             "Channel: Telegram private chat. Return plain text only. "
             "The final response must be no longer than 4096 characters."
         )
+    if channel_type == ChannelType.WEBSITE:
+        return (
+            "Channel: Website chat. Return plain text only. "
+            "The final response must be no longer than 4096 characters."
+        )
     raise AgentRuntimeError("agent_channel_unsupported", retryable=False)
 
 

@@ -1,6 +1,7 @@
 import hashlib
 from dataclasses import dataclass
-from uuid import UUID
+from datetime import UTC, datetime
+from uuid import UUID, uuid4
 
 from sqlalchemy import select
 from sqlalchemy import text as sql_text
@@ -257,10 +258,18 @@ async def _persist_inbound_event_once(
         if conversation.status != ConversationStatus.OPEN.value:
             conversation.status = ConversationStatus.OPEN.value
 
-    idempotency_key = (
-        f"telegram:{account.id}:chat:{canonical.external_thread_id}:"
-        f"message:{canonical.external_message_id}"
-    )
+    if canonical.channel_type == ChannelType.TELEGRAM:
+        idempotency_key = (
+            f"telegram:{account.id}:chat:{canonical.external_thread_id}:"
+            f"message:{canonical.external_message_id}"
+        )
+    elif canonical.channel_type == ChannelType.WEBSITE:
+        idempotency_key = (
+            f"website:{account.id}:session:{canonical.external_thread_id}:"
+            f"message:{canonical.external_message_id}"
+        )
+    else:
+        raise ChannelRuntimeError("channel_inbound_adapter_unsupported")
     existing_message = await db.scalar(
         select(Message).where(
             Message.tenant_id == account.tenant_id,
@@ -505,29 +514,35 @@ async def dispatch_text(
     )
     if conversation is None:
         raise ChannelRuntimeError("channel_conversation_missing")
-    if account.channel_type != ChannelType.TELEGRAM.value:
-        raise ChannelRuntimeError("channel_text_adapter_unsupported")
-
-    access_secret = await load_channel_secret(
-        db,
-        settings,
-        account,
-        ChannelCredentialKind.TELEGRAM_BOT_TOKEN,
-    )
-    adapter = registry.get(ChannelType.TELEGRAM)
-    sent = await adapter.send_text(
-        access_secret,
-        external_thread_id=binding.external_thread_id,
-        text=normalized_text,
-    )
-    identity = await db.scalar(
-        select(ExternalIdentity).where(
-            ExternalIdentity.tenant_id == tenant_id,
-            ExternalIdentity.contact_id == conversation.contact_id,
-            ExternalIdentity.namespace == "telegram:user",
-            ExternalIdentity.external_id == binding.external_thread_id,
+    identity: ExternalIdentity | None = None
+    if account.channel_type == ChannelType.TELEGRAM.value:
+        access_secret = await load_channel_secret(
+            db,
+            settings,
+            account,
+            ChannelCredentialKind.TELEGRAM_BOT_TOKEN,
         )
-    )
+        adapter = registry.get(ChannelType.TELEGRAM)
+        sent = await adapter.send_text(
+            access_secret,
+            external_thread_id=binding.external_thread_id,
+            text=normalized_text,
+        )
+        external_message_id = sent.external_message_id
+        occurred_at = sent.occurred_at
+        identity = await db.scalar(
+            select(ExternalIdentity).where(
+                ExternalIdentity.tenant_id == tenant_id,
+                ExternalIdentity.contact_id == conversation.contact_id,
+                ExternalIdentity.namespace == "telegram:user",
+                ExternalIdentity.external_id == binding.external_thread_id,
+            )
+        )
+    elif account.channel_type == ChannelType.WEBSITE.value:
+        external_message_id = f"website:{uuid4()}"
+        occurred_at = datetime.now(UTC)
+    else:
+        raise ChannelRuntimeError("channel_text_adapter_unsupported")
     message = Message(
         tenant_id=tenant_id,
         conversation_id=conversation.id,
@@ -536,18 +551,18 @@ async def dispatch_text(
         author_type=author_type.value,
         message_type=MessageType.TEXT.value,
         text=normalized_text,
-        external_message_id=sent.external_message_id,
+        external_message_id=external_message_id,
         idempotency_key=idempotency_key,
         external_metadata={
             "channel_type": account.channel_type,
             "channel_account_id": str(account.id),
             "external_thread_id": binding.external_thread_id,
         },
-        occurred_at=sent.occurred_at,
+        occurred_at=occurred_at,
     )
     db.add(message)
-    if conversation.last_message_at is None or sent.occurred_at > conversation.last_message_at:
-        conversation.last_message_at = sent.occurred_at
+    if conversation.last_message_at is None or occurred_at > conversation.last_message_at:
+        conversation.last_message_at = occurred_at
     try:
         await db.commit()
     except IntegrityError as exc:

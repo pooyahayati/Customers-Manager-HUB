@@ -199,10 +199,14 @@ def _channel_response(
 ) -> ChannelAccountResponse:
     channel_type = ChannelType(account.channel_type)
     adapter = registry.get(channel_type)
-    required_credentials = {
-        ChannelCredentialKind.TELEGRAM_BOT_TOKEN,
-        ChannelCredentialKind.TELEGRAM_WEBHOOK_SECRET,
-    }
+    required_credentials: set[ChannelCredentialKind] = (
+        {
+            ChannelCredentialKind.TELEGRAM_BOT_TOKEN,
+            ChannelCredentialKind.TELEGRAM_WEBHOOK_SECRET,
+        }
+        if channel_type == ChannelType.TELEGRAM
+        else set()
+    )
     return ChannelAccountResponse(
         id=account.id,
         channel_type=channel_type,
@@ -387,6 +391,16 @@ async def update_channel(
     account = await load_channel_account(db, channel_account_id, tenant_id=context.tenant.id)
     if account is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Channel not found")
+    if payload.enabled_inbound_types is not None:
+        supported_inbound = (
+            registry.get(ChannelType(account.channel_type)).capabilities & _INBOUND_CAPABILITIES
+        )
+        unsupported = set(payload.enabled_inbound_types) - supported_inbound
+        if unsupported:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="Inbound capability is not supported by this channel",
+            )
     changed_fields: list[str] = []
     if payload.name is not None and payload.name != account.name:
         account.name = payload.name

@@ -22,6 +22,7 @@ from customers_manager_hub.database import AsyncSessionFactory, create_database
 from customers_manager_hub.health import check_postgres, check_redis
 from customers_manager_hub.logging_config import configure_logging
 from customers_manager_hub.telegram import TelegramAdapter
+from customers_manager_hub.website import WebsiteAdapter
 
 logger = logging.getLogger(__name__)
 _RECLAIM_INTERVAL_SECONDS = 5.0
@@ -118,7 +119,9 @@ async def run_worker_async(settings: Settings, stop_event: asyncio.Event | None 
 
     try:
         async with httpx2.AsyncClient() as external_http_client:
-            channel_registry = ChannelRegistry((TelegramAdapter(external_http_client),))
+            channel_registry = ChannelRegistry(
+                (TelegramAdapter(external_http_client), WebsiteAdapter())
+            )
             ai_gateway = AIGateway(
                 build_live_provider_registry(settings, external_http_client),
                 session_factory,

@@ -22,6 +22,9 @@ from customers_manager_hub.health import router as health_router
 from customers_manager_hub.logging_config import configure_logging
 from customers_manager_hub.telegram import TelegramAdapter
 from customers_manager_hub.tenants import router as tenants_router
+from customers_manager_hub.website import WebsiteAdapter
+from customers_manager_hub.website_chat import admin_router as website_admin_router
+from customers_manager_hub.website_chat import public_router as website_public_router
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -40,7 +43,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     resolved_settings,
                     external_http_client,
                 )
-                channel_registry = ChannelRegistry((TelegramAdapter(external_http_client),))
+                channel_registry = ChannelRegistry(
+                    (TelegramAdapter(external_http_client), WebsiteAdapter())
+                )
                 application.state.ai_gateway = AIGateway(ai_provider_registry, session_factory)
                 application.state.channel_registry = channel_registry
                 application.state.channel_queue = channel_queue
@@ -62,10 +67,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.include_router(ai_profiles_router)
     application.include_router(prompt_router)
     application.include_router(agents_router)
+    application.include_router(website_admin_router)
     application.include_router(channels_router)
     application.include_router(contacts_router)
     application.include_router(conversations_router)
     application.include_router(channel_webhooks_router)
+    application.include_router(website_public_router)
     return application
 
 
