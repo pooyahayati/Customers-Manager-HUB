@@ -62,6 +62,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     application.state.settings = resolved_settings
     application.state.db_session_factory = session_factory
+    application.dependency_overrides[get_settings] = lambda: resolved_settings
     application.include_router(health_router)
     application.include_router(auth_router)
     application.include_router(tenants_router)
