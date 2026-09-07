@@ -13,6 +13,12 @@ services:
       REDIS_URL: "${REDIS_URL:-redis://redis:6379/0}"
       ENCRYPTION_KEY: "${ENCRYPTION_KEY:-}"
       TELEGRAM_WEBHOOK_BASE_URL: "${TELEGRAM_WEBHOOK_BASE_URL:-}"
+      S3_ENDPOINT_URL: "${S3_ENDPOINT_URL:-http://object-storage:8333}"
+      S3_REGION: "${S3_REGION:-us-east-1}"
+      S3_ACCESS_KEY_ID: "${S3_ACCESS_KEY_ID:-cmh-dev-access}"
+      S3_SECRET_ACCESS_KEY: "${S3_SECRET_ACCESS_KEY:-cmh-dev-secret}"
+      S3_BUCKET: "${S3_BUCKET:-cmh-knowledge}"
+      S3_FORCE_PATH_STYLE: "${S3_FORCE_PATH_STYLE:-true}"
     ports:
       - "${API_PORT:-8000}:8000"
     depends_on:
@@ -20,6 +26,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      object-storage:
+        condition: service_started
     healthcheck:
       test:
         [
@@ -49,11 +57,19 @@ services:
       DATABASE_URL: "${DATABASE_URL:-postgresql+psycopg://cmh:change-me@postgres:5432/customers_manager_hub}"
       REDIS_URL: "${REDIS_URL:-redis://redis:6379/0}"
       ENCRYPTION_KEY: "${ENCRYPTION_KEY:-}"
+      S3_ENDPOINT_URL: "${S3_ENDPOINT_URL:-http://object-storage:8333}"
+      S3_REGION: "${S3_REGION:-us-east-1}"
+      S3_ACCESS_KEY_ID: "${S3_ACCESS_KEY_ID:-cmh-dev-access}"
+      S3_SECRET_ACCESS_KEY: "${S3_SECRET_ACCESS_KEY:-cmh-dev-secret}"
+      S3_BUCKET: "${S3_BUCKET:-cmh-knowledge}"
+      S3_FORCE_PATH_STYLE: "${S3_FORCE_PATH_STYLE:-true}"
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+      object-storage:
+        condition: service_started
     networks:
       - cmh
 
@@ -124,14 +140,26 @@ services:
     networks:
       - cmh
 
-# Object storage is intentionally not started in the bootstrap Compose file.
-# Before application file storage is implemented, select and document an actively
-# maintained S3-compatible self-hosted backend through an ADR. The application
-# contract remains S3-compatible so cloud S3 providers can also be used.
+  object-storage:
+    image: chrislusf/seaweedfs:4.44
+    container_name: cmh-object-storage
+    restart: unless-stopped
+    command: ["mini", "-dir=/data"]
+    environment:
+      AWS_ACCESS_KEY_ID: "${S3_ACCESS_KEY_ID:-cmh-dev-access}"
+      AWS_SECRET_ACCESS_KEY: "${S3_SECRET_ACCESS_KEY:-cmh-dev-secret}"
+      S3_BUCKET: "${S3_BUCKET:-cmh-knowledge}"
+    ports:
+      - "${S3_PORT:-8333}:8333"
+    volumes:
+      - object_storage_data:/data
+    networks:
+      - cmh
 
 volumes:
   postgres_data:
   redis_data:
+  object_storage_data:
 
 networks:
   cmh:

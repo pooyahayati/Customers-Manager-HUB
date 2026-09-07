@@ -19,6 +19,9 @@ from customers_manager_hub.contacts import router as contacts_router
 from customers_manager_hub.conversations import router as conversations_router
 from customers_manager_hub.database import create_database
 from customers_manager_hub.health import router as health_router
+from customers_manager_hub.knowledge import router as knowledge_router
+from customers_manager_hub.knowledge_queue import KnowledgeJobQueue
+from customers_manager_hub.knowledge_storage import build_object_storage
 from customers_manager_hub.logging_config import configure_logging
 from customers_manager_hub.telegram import TelegramAdapter
 from customers_manager_hub.tenants import router as tenants_router
@@ -35,6 +38,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     engine, session_factory = create_database(resolved_settings)
     channel_redis = create_channel_redis(resolved_settings)
     channel_queue = ChannelJobQueue(channel_redis)
+    knowledge_queue = KnowledgeJobQueue(channel_redis)
+    knowledge_storage = build_object_storage(resolved_settings)
 
     @asynccontextmanager
     async def lifespan(application: FastAPI) -> AsyncGenerator[None]:
@@ -62,6 +67,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     application.state.settings = resolved_settings
     application.state.db_session_factory = session_factory
+    application.state.knowledge_queue = knowledge_queue
+    application.state.knowledge_storage = knowledge_storage
     application.dependency_overrides[get_settings] = lambda: resolved_settings
     application.include_router(health_router)
     application.include_router(auth_router)
@@ -70,6 +77,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.include_router(prompt_router)
     application.include_router(agents_router)
     application.include_router(tools_router)
+    application.include_router(knowledge_router)
     application.include_router(website_admin_router)
     application.include_router(channels_router)
     application.include_router(contacts_router)

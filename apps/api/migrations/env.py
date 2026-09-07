@@ -6,6 +6,7 @@ from sqlalchemy import create_engine, pool
 from customers_manager_hub import agent_models as _agent_models  # noqa: F401
 from customers_manager_hub import ai_models as _ai_models  # noqa: F401
 from customers_manager_hub import channel_models as _channel_models  # noqa: F401
+from customers_manager_hub import knowledge_models as _knowledge_models  # noqa: F401
 from customers_manager_hub import tool_models as _tool_models  # noqa: F401
 from customers_manager_hub.config import get_settings
 from customers_manager_hub.models import Base
@@ -49,3 +50,4 @@ if context.is_offline_mode():
     run_migrations_offline()
 else:
     run_migrations_online()
+
