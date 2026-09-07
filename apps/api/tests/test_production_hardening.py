@@ -154,10 +154,10 @@ def test_blank_development_encryption_key_is_treated_as_unset() -> None:
     assert settings.encryption_key is None
 
 
-def test_pdf_requires_pdf_signature_before_parser_work() -> None:
+def test_pdf_rejects_invalid_signature_with_stable_error_contract() -> None:
     with pytest.raises(KnowledgeParseError) as raised:
         parse_pdf(b"not-a-pdf")
-    assert raised.value.code == "knowledge_pdf_signature_invalid"
+    assert raised.value.code == "knowledge_pdf_invalid"
 
 
 def test_xlsx_rejects_parent_traversal_archive_entry() -> None:
