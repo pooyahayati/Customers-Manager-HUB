@@ -1,3 +1,5 @@
+import asyncio
+
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
@@ -13,7 +15,12 @@ from customers_manager_hub.agent_models import (
     AgentRunStatus,
     PromptVersionStatus,
 )
-from customers_manager_hub.ai_gateway import AIGateway, AIRoutingError, GenerationRequest
+from customers_manager_hub.ai_gateway import (
+    AIGateway,
+    AIRoutingError,
+    GenerationRequest,
+    GenerationResult,
+)
 from customers_manager_hub.ai_models import AITaskType
 from customers_manager_hub.channel_gateway import ChannelProviderError, ChannelRegistry
 from customers_manager_hub.channel_models import ChannelAccount, ChannelInboundEvent, ChannelType
@@ -31,6 +38,7 @@ _CONTEXT_MESSAGE_LIMIT = 20
 _CONTEXT_HISTORY_CHAR_BUDGET = 24_000
 _CONTEXT_SINGLE_MESSAGE_LIMIT = 4_000
 _AGENT_RUN_LEASE_SECONDS = 180
+_AGENT_RUN_LEASE_RENEW_INTERVAL_SECONDS = 60.0
 _TELEGRAM_TEXT_LIMIT = 4096
 
 _PLATFORM_RUNTIME_POLICY = """You are a customer-facing AI agent operating inside Customers Manager HUB.
@@ -288,6 +296,67 @@ async def _claim_run(
         raise AgentRuntimeError("agent_run_busy", retryable=True)
 
 
+async def _renew_run_lease(
+    session_factory: AsyncSessionFactory,
+    claim: AgentRunClaim,
+) -> None:
+    now = datetime.now(UTC)
+    lease_until = now + timedelta(seconds=_AGENT_RUN_LEASE_SECONDS)
+    async with session_factory() as db:
+        result = await db.execute(
+            update(AgentRun)
+            .where(
+                AgentRun.id == claim.run_id,
+                AgentRun.lease_token == claim.lease_token,
+                AgentRun.status.in_(
+                    (AgentRunStatus.PENDING.value, AgentRunStatus.GENERATED.value)
+                ),
+            )
+            .values(lease_until=lease_until)
+            .returning(AgentRun.id)
+        )
+        if result.scalar_one_or_none() is None:
+            await db.rollback()
+            raise AgentRuntimeError("agent_run_lease_lost", retryable=True)
+        await db.commit()
+
+
+async def _generate_with_lease_renewal(
+    session_factory: AsyncSessionFactory,
+    claim: AgentRunClaim,
+    ai_gateway: AIGateway,
+    *,
+    tenant_id: UUID,
+    request: GenerationRequest,
+    renew_interval_seconds: float,
+) -> GenerationResult:
+    if renew_interval_seconds <= 0:
+        raise ValueError("renew_interval_seconds must be positive")
+    generation_task = asyncio.create_task(
+        ai_gateway.generate(
+            tenant_id,
+            AITaskType.CUSTOMER_RESPONSE,
+            request,
+        )
+    )
+    try:
+        while True:
+            done, _ = await asyncio.wait(
+                {generation_task},
+                timeout=renew_interval_seconds,
+            )
+            if generation_task in done:
+                return await generation_task
+            await _renew_run_lease(session_factory, claim)
+    finally:
+        if not generation_task.done():
+            generation_task.cancel()
+            try:
+                await generation_task
+            except asyncio.CancelledError:
+                pass
+
+
 async def _load_run_snapshot(
     session_factory: AsyncSessionFactory,
     claim: AgentRunClaim,
@@ -428,6 +497,8 @@ async def process_agent_event(
     channel_registry: ChannelRegistry,
     settings: Settings,
     event_id: UUID,
+    *,
+    lease_renew_interval_seconds: float = _AGENT_RUN_LEASE_RENEW_INTERVAL_SECONDS,
 ) -> None:
     run_id = await _resolve_or_create_run(session_factory, event_id)
     if run_id is None:
@@ -452,10 +523,13 @@ async def process_agent_event(
                 instructions=compose_instructions(snapshot.prompt_content, snapshot.channel_type),
             )
             try:
-                result = await ai_gateway.generate(
-                    snapshot.tenant_id,
-                    AITaskType.CUSTOMER_RESPONSE,
-                    request,
+                result = await _generate_with_lease_renewal(
+                    session_factory,
+                    claim,
+                    ai_gateway,
+                    tenant_id=snapshot.tenant_id,
+                    request=request,
+                    renew_interval_seconds=lease_renew_interval_seconds,
                 )
             except AIRoutingError as exc:
                 await _release_run_error(
