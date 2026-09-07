@@ -2,44 +2,69 @@
 
 Multi-tenant, omnichannel AI customer interaction platform for customer support, sales assistance, business knowledge, tool execution, customer memory, and human handoff.
 
-> Current status: architecture/bootstrap phase. Production application code has not started yet.
+> Current status: Milestones M0 through M10 are implemented and merged. The next roadmap milestone is M11 — Human Handoff & Operator Inbox.
 
 ## Product Direction
 
 Customers Manager HUB is designed as a reusable commercial platform, not a channel-specific chatbot.
 
-A tenant should eventually be able to:
+The implemented platform foundation already supports:
 
-- Connect channels such as Telegram and Website Chat.
-- Enable/disable supported inbound message types per channel.
-- Configure AI agents and prompt versions.
-- Select AI provider/model independently for each AI task.
-- Use OpenAI, Gemini, and future AI providers through adapters.
-- Transcribe voice using a separately configured transcription model.
-- Connect live business APIs and tools.
-- Upload PDF/Excel knowledge and use RAG.
-- Manage contacts, identities, conversations, and message history.
-- Transfer conversations to human operators.
-- Build structured customer memory and communication preferences.
-- Review audit, trace, usage, cost, and analytics information.
-- Run the platform using Docker.
+- Multi-tenant authentication, RBAC, tenant isolation, and audit foundations.
+- Canonical contacts, external identities, conversations, messages, and attachment metadata.
+- Telegram and Website Chat using the same channel/conversation core.
+- Configurable Agents and versioned/published Prompts.
+- Provider-independent AI task routing across OpenAI, Gemini, and deterministic test providers.
+- Tool Runtime with tenant/agent authorization, encrypted credentials, Generic REST, business-reference, and Google Sheets paths.
+- Tenant-scoped Knowledge Base and RAG using PDF/XLSX ingestion, S3-compatible object storage, embeddings, and pgvector retrieval.
+- Telegram voice transcription through the configured `voice_transcription` task profile, with Gemini-first routing available by configuration and provider fallback.
+- Docker Compose deployment for the API, Worker, Web, PostgreSQL/pgvector, Redis, and S3-compatible object storage.
+
+The remaining MVP roadmap adds Human Handoff, Customer Memory, Policy Engine, Analytics/Cost, Production Hardening, and Commercial MVP validation.
+
+## Current Roadmap Status
+
+| Milestone | Status |
+|---|---|
+| M0 — Project Governance & Bootstrap | Complete |
+| M1 — Repository & Runtime Skeleton | Complete |
+| M2 — Tenant, Authentication & RBAC | Complete |
+| M3 — Contacts, Identities, Conversations & Messages | Complete |
+| M4 — AI Gateway & Task Model Routing | Complete |
+| M5 — Channel Framework & Telegram | Complete |
+| M6 — Agent & Prompt Runtime | Complete |
+| M7 — Website Chat Channel | Complete |
+| M8 — Tool Runtime & Live Business Data | Complete |
+| M9 — Knowledge Base & RAG | Complete |
+| M10 — Voice Transcription End-to-End | Complete |
+| M11 — Human Handoff & Operator Inbox | Next |
+| M12 — Customer Memory & Intelligence | Planned |
+| M13 — Policy Engine | Planned |
+| M14 — Analytics, Usage & Cost | Planned |
+| M15 — Security & Production Hardening | Planned |
+| M16 — Commercial MVP Validation | Planned |
+
+See [ROADMAP.md](ROADMAP.md) for milestone scope and exit gates.
 
 ## Architecture
 
-Initial architecture:
+Current architecture:
 
-- Modular monolith backend.
-- Independent asynchronous workers.
-- Multi-tenant by design.
+- Modular monolith backend with explicit internal boundaries.
+- Independent asynchronous worker process using the same backend codebase/image.
+- FastAPI backend API.
+- Next.js Admin Console runtime.
+- Separate lightweight Website Chat widget/runtime.
+- Multi-tenant isolation by design.
 - Provider-independent AI Gateway.
 - Task-based AI model routing.
 - Channel adapter architecture.
-- PostgreSQL + pgvector.
-- Redis queue/cache/coordination.
-- S3-compatible object-storage contract; self-hosted backend selection is deferred until the file-storage milestone.
-- Next.js frontend.
-- FastAPI backend.
+- PostgreSQL 18 + pgvector as the canonical datastore/vector store.
+- Redis Streams for asynchronous channel/background processing and Redis for coordination.
+- S3-compatible object storage with SeaweedFS as the current Docker reference backend.
 - Docker Compose deployment.
+
+The project deliberately avoids premature microservices. Module boundaries are designed so service extraction remains possible if scale or operational requirements justify it.
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for the technical architecture.
 
@@ -57,43 +82,59 @@ The platform does not assume one model handles all AI operations.
 | Embeddings | Configurable | Configurable |
 | Complex reasoning/tool use | Configurable | Configurable |
 
-Exact provider/model identifiers are stored as configuration rather than embedded throughout business logic.
+Exact provider/model identifiers are configuration data rather than business-code dependencies.
 
-## Initial MVP
+For voice transcription, M10 recommends Gemini `gemini-3.5-transcribe` as the first configured route, while provider/model resolution still occurs through the tenant `voice_transcription` task profile and may fall back to other configured providers.
 
-Primary MVP scope includes:
+## Implemented End-to-End Capabilities
 
-- Multi-tenancy and RBAC.
-- Telegram.
-- Website Chat.
-- Text and voice message processing.
-- OpenAI adapter.
-- Gemini adapter.
-- AI task/model routing.
-- Agent and prompt management.
-- Generic REST/business tools.
-- Google Sheets integration path.
-- PDF/Excel knowledge ingestion.
-- RAG.
-- Contacts and conversations.
-- Human handoff.
-- Customer memory foundation.
-- Policies.
-- Audit and AI traces.
-- Usage/cost and basic analytics.
-- Docker Compose deployment.
+### Text conversation path
 
-See [PRD.md](PRD.md) for detailed product requirements and [ROADMAP.md](ROADMAP.md) for delivery sequencing.
+```text
+Telegram / Website Chat
+        ↓
+Canonical Contact / Conversation / Message
+        ↓
+Agent + Published Prompt
+        ↓
+RAG + Approved Tools when needed
+        ↓
+AI Gateway / Task Routing
+        ↓
+Persisted Outbound Message
+        ↓
+Originating Channel
+```
+
+### Telegram voice path
+
+```text
+Telegram Voice
+      ↓
+Secure Media Retrieval
+      ↓
+voice_transcription Task Profile
+      ↓
+Configured Provider / Fallback
+      ↓
+Persist Transcript on Original Voice Message
+      ↓
+Normal Agent + RAG + Tool Runtime
+      ↓
+Telegram Response
+```
+
+Human operator takeover is intentionally the next capability and is not yet implemented.
 
 ## Repository Documents
 
-- `AGENTS.md` — mandatory engineering and Codex rules.
+- `AGENTS.md` — mandatory engineering and implementation rules.
 - `PRD.md` — product requirements and MVP scope.
 - `ARCHITECTURE.md` — architecture and module boundaries.
 - `ROADMAP.md` — milestone sequence and delivery gates.
 - `docs/adr/` — Architecture Decision Records.
 - `docs/development/TECHNICAL_BASELINE.md` — approved runtime/toolchain baseline.
-- `specs/MILESTONE-1-RUNTIME-SKELETON.md` — first implementation specification.
+- `specs/` — milestone implementation specifications, including M1 through M10.
 - `.env.example` — non-secret environment configuration template.
 
 ## Development Governance
@@ -107,22 +148,26 @@ Before implementing a feature:
 5. Add appropriate tests.
 6. Review tenant isolation, authorization, security, observability, and Docker impact.
 
-Codex is treated as an implementation engineer and must not silently redesign the project architecture.
+Material architecture changes require documentation/ADR updates before implementation proceeds.
 
 ## Local Development
 
-The repository is still in Bootstrap/Milestone 1 preparation. Application containers are intentionally not present yet.
-
-Bootstrap infrastructure currently includes PostgreSQL + pgvector and Redis.
+Configure a local environment from the non-secret template:
 
 ```bash
 cp .env.example .env
-make infra-check
+```
+
+Start the current Docker Compose stack:
+
+```bash
 make up
 make ps
 ```
 
-Useful infrastructure commands:
+The stack includes API, Worker, Web, PostgreSQL/pgvector, Redis, and S3-compatible object storage.
+
+Useful commands:
 
 ```bash
 make logs
@@ -130,9 +175,17 @@ make down
 make clean
 ```
 
-`make clean` removes local project volumes and therefore deletes local PostgreSQL/Redis data.
+`make clean` removes local project volumes and therefore deletes local PostgreSQL, Redis, and object-storage development data.
 
 Do not commit `.env` or real credentials.
+
+## Validation Model
+
+Each completed milestone is required by the roadmap to address tests, security, documentation, and Docker impact before completion.
+
+M10's final validation covered frozen dependency installation, Ruff lint/format, Pyright strict, unit regression, PostgreSQL/pgvector migrations and Alembic drift checks, Redis-backed integration suites, voice transcription E2E behavior, Docker image builds, Compose startup/readiness, and non-root API/Worker execution.
+
+A persistent repository CI workflow and enforced branch protection are being established separately; historical milestone validation has already been executed before merge.
 
 ## Documentation Priority
 
@@ -146,15 +199,9 @@ Project decisions should be interpreted in this order:
 6. `AGENTS.md`.
 7. Feature/task specifications.
 
-## Current Branch Strategy
+## Branch Strategy
 
-Bootstrap documentation and infrastructure are being prepared on:
-
-```text
-chore/project-bootstrap
-```
-
-The default branch should remain stable and feature work should use scoped branches.
+The default branch is `main` and should remain stable. Feature, milestone, documentation, and infrastructure changes should use scoped branches and be merged through reviewed pull requests.
 
 ## License
 
