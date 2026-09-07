@@ -19,6 +19,7 @@ from customers_manager_hub.channel_runtime import (
 )
 from customers_manager_hub.config import Settings, get_settings
 from customers_manager_hub.database import AsyncSessionFactory, create_database
+from customers_manager_hub.handoff_runtime import HandoffRuntimeError, evaluate_event_escalation
 from customers_manager_hub.health import check_postgres, check_redis
 from customers_manager_hub.knowledge_queue import KnowledgeJob, KnowledgeJobQueue
 from customers_manager_hub.knowledge_runtime import (
@@ -109,6 +110,17 @@ async def process_job(
                     "voice transcription job failed", extra={"event_id": str(job.event_id)}
                 )
                 return
+        try:
+            handoff_id = await evaluate_event_escalation(session_factory, job.event_id)
+        except HandoffRuntimeError as exc:
+            logger.error(
+                "handoff evaluation failed",
+                extra={"event_id": str(job.event_id), "error_code": exc.code},
+            )
+            return
+        if handoff_id is not None:
+            await queue.acknowledge(job.stream_id)
+            return
         try:
             await process_agent_event(
                 session_factory,
