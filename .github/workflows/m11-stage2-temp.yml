@@ -55,7 +55,71 @@ jobs:
           new = '''        if item.strip()\n'''
           if old not in text:
               raise SystemExit('handoff keyword typing anchor missing')
-          runtime.write_text(text.replace(old, new, 1))
+          text = text.replace(old, new, 1)
+
+          old_request = '''            conversation = await db.scalar(\n                select(Conversation).where(\n                    Conversation.id == conversation_id,\n                    Conversation.tenant_id == tenant_id,\n                )\n            )\n'''
+          new_request = '''            conversation = await db.scalar(\n                select(Conversation)\n                .where(\n                    Conversation.id == conversation_id,\n                    Conversation.tenant_id == tenant_id,\n                )\n                .with_for_update()\n            )\n'''
+          if old_request not in text:
+              raise SystemExit('handoff request conversation lock anchor missing')
+          text = text.replace(old_request, new_request, 1)
+
+          pause_marker = 'async def pause_for_tool_approval('
+          claim_marker = 'async def claim_handoff('
+          if pause_marker not in text or claim_marker not in text:
+              raise SystemExit('handoff runtime function markers missing')
+          runtime_head, pause_tail = text.split(pause_marker, 1)
+          pause_body, runtime_tail = pause_tail.split(claim_marker, 1)
+          old_pause = '''        async with session_factory() as db:\n            run = await db.scalar(\n                select(AgentRun)\n'''
+          new_pause = '''        async with session_factory() as db:\n            conversation = await db.scalar(\n                select(Conversation)\n                .where(\n                    Conversation.id == conversation_id,\n                    Conversation.tenant_id == tenant_id,\n                )\n                .with_for_update()\n            )\n            if conversation is None:\n                raise HandoffRuntimeError("handoff_conversation_missing")\n            run = await db.scalar(\n                select(AgentRun)\n'''
+          if old_pause not in pause_body:
+              raise SystemExit('tool approval conversation lock anchor missing')
+          pause_body = pause_body.replace(old_pause, new_pause, 1)
+
+          guard = '''async def guard_ai_dispatch(\n    db: AsyncSession,\n    *,\n    tenant_id: UUID,\n    conversation_id: UUID,\n    agent_run_id: UUID,\n    lease_token: UUID,\n) -> bool:\n    conversation = await db.scalar(\n        select(Conversation)\n        .where(\n            Conversation.id == conversation_id,\n            Conversation.tenant_id == tenant_id,\n        )\n        .with_for_update()\n    )\n    if conversation is None:\n        raise HandoffRuntimeError("handoff_conversation_missing")\n\n    handoff = await _active_handoff(db, tenant_id, conversation_id, for_update=True)\n    if handoff is None:\n        return True\n\n    run = await db.scalar(\n        select(AgentRun)\n        .where(\n            AgentRun.id == agent_run_id,\n            AgentRun.tenant_id == tenant_id,\n            AgentRun.conversation_id == conversation_id,\n            AgentRun.lease_token == lease_token,\n            AgentRun.status.in_(\n                (AgentRunStatus.PENDING.value, AgentRunStatus.GENERATED.value)\n            ),\n        )\n        .with_for_update()\n    )\n    if run is None:\n        raise HandoffRuntimeError("agent_run_lease_lost")\n\n    run.status = AgentRunStatus.PAUSED.value\n    run.generated_text = None\n    run.error_code = None\n    run.lease_token = None\n    run.lease_until = None\n    if handoff.source_agent_run_id is None:\n        handoff.source_agent_run_id = run.id\n    return False\n\n\n'''
+          text = runtime_head + pause_marker + pause_body + guard + claim_marker + runtime_tail
+          runtime.write_text(text)
+
+          agent = Path('apps/api/src/customers_manager_hub/agent_runtime.py')
+          text = agent.read_text()
+          import_anchor = '''from customers_manager_hub.handoff_runtime import (\n    HandoffRuntimeError,\n    is_event_ai_paused,\n    pause_for_tool_approval,\n)\n'''
+          import_replacement = '''from customers_manager_hub.handoff_runtime import (\n    HandoffRuntimeError,\n    guard_ai_dispatch,\n    is_event_ai_paused,\n    pause_for_tool_approval,\n)\n'''
+          if import_anchor not in text:
+              raise SystemExit('agent dispatch guard import anchor missing')
+          text = text.replace(import_anchor, import_replacement, 1)
+          dispatch_anchor = '''        async with session_factory() as db:\n            outbound = await dispatch_text(\n                db,\n                channel_registry,\n                settings,\n                tenant_id=snapshot.tenant_id,\n                channel_account_id=snapshot.channel_account_id,\n                conversation_id=snapshot.conversation_id,\n                text=generated_text,\n                idempotency_key=f"agent:{snapshot.run_id}",\n                author_type=MessageAuthorType.AI,\n            )\n'''
+          dispatch_replacement = '''        async with session_factory() as db:\n            try:\n                can_dispatch = await guard_ai_dispatch(\n                    db,\n                    tenant_id=snapshot.tenant_id,\n                    conversation_id=snapshot.conversation_id,\n                    agent_run_id=snapshot.run_id,\n                    lease_token=claim.lease_token,\n                )\n            except HandoffRuntimeError as exc:\n                raise AgentRuntimeError(\n                    exc.code,\n                    retryable=exc.code == "agent_run_lease_lost",\n                ) from exc\n            if not can_dispatch:\n                await db.commit()\n                return\n            outbound = await dispatch_text(\n                db,\n                channel_registry,\n                settings,\n                tenant_id=snapshot.tenant_id,\n                channel_account_id=snapshot.channel_account_id,\n                conversation_id=snapshot.conversation_id,\n                text=generated_text,\n                idempotency_key=f"agent:{snapshot.run_id}",\n                author_type=MessageAuthorType.AI,\n            )\n'''
+          if dispatch_anchor not in text:
+              raise SystemExit('agent dispatch guard anchor missing')
+          agent.write_text(text.replace(dispatch_anchor, dispatch_replacement, 1))
+
+          test_path = Path('apps/api/tests/test_handoff_integration.py')
+          text = test_path.read_text()
+          ai_import = '''from customers_manager_hub.ai_gateway import AIGateway, AIProviderRegistry, MockAIProviderAdapter\n'''
+          ai_import_replacement = '''from customers_manager_hub.ai_gateway import (\n    AIGateway,\n    AIProviderRegistry,\n    GenerationRequest,\n    GenerationResult,\n    MockAIProviderAdapter,\n)\n'''
+          if ai_import not in text:
+              raise SystemExit('handoff race AI import anchor missing')
+          text = text.replace(ai_import, ai_import_replacement, 1)
+          model_import = '''    HandoffPolicy,\n    HandoffStatus,\n    OperatorAssistSuggestion,\n)\n'''
+          model_import_replacement = '''    HandoffPolicy,\n    HandoffRequestSource,\n    HandoffStatus,\n    OperatorAssistSuggestion,\n)\n'''
+          if model_import not in text:
+              raise SystemExit('handoff race model import anchor missing')
+          text = text.replace(model_import, model_import_replacement, 1)
+          runtime_import = '''from customers_manager_hub.handoff_runtime import (\n    evaluate_event_escalation,\n    pause_for_tool_approval,\n    resolve_handoff,\n)\n'''
+          runtime_import_replacement = '''from customers_manager_hub.handoff_runtime import (\n    evaluate_event_escalation,\n    pause_for_tool_approval,\n    request_handoff,\n    resolve_handoff,\n)\n'''
+          if runtime_import not in text:
+              raise SystemExit('handoff race runtime import anchor missing')
+          text = text.replace(runtime_import, runtime_import_replacement, 1)
+
+          class_anchor = '''def login(client: TestClient, email: str, password: str) -> Response:\n'''
+          race_provider = '''class HandoffDuringGenerationProvider(MockAIProviderAdapter):\n    def __init__(self, tenant_id: UUID, conversation_id: UUID) -> None:\n        super().__init__(key="mock", generation_text="This AI reply must never be sent")\n        self.tenant_id = tenant_id\n        self.conversation_id = conversation_id\n        self.handoff_id: UUID | None = None\n\n    async def generate(\n        self,\n        model_id: str,\n        request: GenerationRequest,\n        parameters: dict[str, object],\n        timeout_seconds: int,\n    ) -> GenerationResult:\n        handoff = await request_handoff(\n            SESSION_FACTORY,\n            tenant_id=self.tenant_id,\n            conversation_id=self.conversation_id,\n            request_source=HandoffRequestSource.SYSTEM,\n            reason_code="mid_generation_race",\n        )\n        self.handoff_id = handoff.id\n        return await super().generate(model_id, request, parameters, timeout_seconds)\n\n\n'''
+          if class_anchor not in text:
+              raise SystemExit('handoff race provider anchor missing')
+          text = text.replace(class_anchor, race_provider + class_anchor, 1)
+
+          race_test = '''\n\ndef test_handoff_created_during_generation_blocks_final_ai_dispatch() -> None:\n    tenant_id, _ = seed_user(\n        slug="handoff-race",\n        email="race-owner@example.com",\n        password="race handoff owner password",\n        role=TenantRole.OWNER,\n    )\n    conversation_id, account_id, _, event_id = seed_conversation_bundle(\n        tenant_id, text_value="Please answer this question"\n    )\n    seed_agent_stack(tenant_id, account_id)\n    provider = HandoffDuringGenerationProvider(tenant_id, conversation_id)\n    gateway = AIGateway(AIProviderRegistry((provider,)), SESSION_FACTORY)\n\n    asyncio.run(\n        process_agent_event(\n            SESSION_FACTORY,\n            gateway,\n            ChannelRegistry(()),\n            TEST_SETTINGS,\n            event_id,\n        )\n    )\n\n    assert provider.calls == 1\n    assert provider.handoff_id is not None\n    with Session(SYNC_ENGINE) as db:\n        run = db.scalar(\n            select(AgentRun).where(\n                AgentRun.tenant_id == tenant_id,\n                AgentRun.conversation_id == conversation_id,\n            )\n        )\n        assert run is not None\n        assert run.status == AgentRunStatus.PAUSED.value\n        assert run.generated_text is None\n        assert run.lease_token is None\n        handoff = db.get(ConversationHandoff, provider.handoff_id)\n        assert handoff is not None\n        assert handoff.status == HandoffStatus.QUEUED.value\n        assert handoff.source_agent_run_id == run.id\n        outbound_ai = list(\n            db.scalars(\n                select(Message).where(\n                    Message.tenant_id == tenant_id,\n                    Message.conversation_id == conversation_id,\n                    Message.direction == MessageDirection.OUTBOUND.value,\n                    Message.author_type == MessageAuthorType.AI.value,\n                )\n            ).all()\n        )\n        assert outbound_ai == []\n'''
+          if 'def test_handoff_created_during_generation_blocks_final_ai_dispatch()' in text:
+              raise SystemExit('handoff race test already present')
+          test_path.write_text(text + race_test)
           PY
       - run: uv sync --frozen
       - name: Format staged M11 source
@@ -82,3 +146,4 @@ jobs:
             apps/api/src/customers_manager_hub/handoff_runtime.py
             apps/api/src/customers_manager_hub/main.py
             apps/api/src/customers_manager_hub/worker.py
+            apps/api/tests/test_handoff_integration.py
