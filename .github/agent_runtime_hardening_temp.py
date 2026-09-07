@@ -1,6 +1,31 @@
 from pathlib import Path
 
 
+runtime = Path("apps/api/src/customers_manager_hub/agent_runtime.py")
+content = runtime.read_text()
+content = content.replace(
+    "import asyncio\n\nfrom dataclasses import dataclass\n",
+    "import asyncio\nfrom contextlib import suppress\nfrom dataclasses import dataclass\n",
+    1,
+)
+content = content.replace(
+    '''        if not generation_task.done():
+            generation_task.cancel()
+            try:
+                await generation_task
+            except asyncio.CancelledError:
+                pass
+''',
+    '''        if not generation_task.done():
+            generation_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await generation_task
+''',
+    1,
+)
+runtime.write_text(content)
+
+
 test = Path("apps/api/tests/test_agent_prompt_integration.py")
 content = test.read_text()
 
