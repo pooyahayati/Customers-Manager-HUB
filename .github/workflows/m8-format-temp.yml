@@ -1,0 +1,35 @@
+name: M8 Format Temporary
+
+on:
+  push:
+    branches:
+      - feat/tool-runtime
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: feat/tool-runtime
+      - uses: actions/setup-python@v5
+        with:
+          python-version-file: .python-version
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --frozen
+      - name: Format and upload blob
+        run: |
+          uv run ruff format apps/api/src/customers_manager_hub/tools.py
+          python - <<'PY'
+          import base64, json
+          from pathlib import Path
+          p = Path('apps/api/src/customers_manager_hub/tools.py')
+          Path('/tmp/blob.json').write_text(json.dumps({'content': base64.b64encode(p.read_bytes()).decode(), 'encoding': 'base64'}))
+          PY
+          sha=$(gh api --method POST "repos/${GITHUB_REPOSITORY}/git/blobs" --input /tmp/blob.json --jq .sha)
+          echo "FORMATTED_TOOLS_SHA=$sha"
