@@ -62,5 +62,6 @@ If an accepted decision materially changes, create a new ADR that supersedes the
 - ADR-015 — S3-Compatible Object Storage and PostgreSQL pgvector RAG
 - ADR-016 — Gemini-First Provider-Neutral Voice Transcription
 - ADR-017 — Conversation Handoff State Machine and Operator Control Boundary
+- ADR-018 — Structured Customer Memory and Trust Boundary
 
 Additional ADRs should be created only when a material implementation decision becomes imminent.
