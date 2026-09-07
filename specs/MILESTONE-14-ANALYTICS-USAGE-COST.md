@@ -45,9 +45,8 @@ M14 does not introduce:
 Analytics reads directly from existing canonical tables:
 
 - `ai_execution_traces` for AI requests, provider/model/task, latency, tokens, and audio seconds;
-- `conversations` and `messages` for conversation/contact activity and response timing;
+- `conversations` and `messages` for conversation/contact activity, response timing, and AI/human authorship;
 - `conversation_handoffs` for handoff rate and exact human-handoff duration;
-- `agent_runs` and outbound message authorship for automation measurement;
 - `tool_executions` for tool execution success/failure and duration.
 
 No duplicated analytics event is emitted for data that already exists transactionally.
@@ -151,7 +150,7 @@ Tenant-scoped API:
 - `GET /api/v1/tenants/{tenant_id}/analytics/ai-usage`
 - `GET /api/v1/tenants/{tenant_id}/analytics/tools`
 - `GET /api/v1/tenants/{tenant_id}/analytics/pricing`
-- `PUT /api/v1/tenants/{tenant_id}/analytics/pricing/{provider}/{model_id}`
+- `PUT /api/v1/tenants/{tenant_id}/analytics/pricing`
 
 Pricing mutation requires Owner/Admin. Analytics read access follows authenticated tenant membership.
 
