@@ -68,11 +68,19 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          mkdir -p /tmp/cmh-trivy
           for service in api web postgres; do
             image_id=$(docker compose -f compose.yaml images -q "$service")
             test -n "$image_id"
+            archive="/tmp/cmh-trivy/${service}.tar"
+            docker save "$image_id" --output "$archive"
             docker run --rm \
-              -v /var/run/docker.sock:/var/run/docker.sock \
+              -v /tmp/cmh-trivy:/scan:ro \
               aquasec/trivy:0.74.0 \
-              image --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 "$image_id"
+              image --input "/scan/${service}.tar" \
+              --scanners vuln \
+              --severity HIGH,CRITICAL \
+              --ignore-unfixed \
+              --exit-code 1
+            rm -f "$archive"
           done
