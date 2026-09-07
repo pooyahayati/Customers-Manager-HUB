@@ -23,6 +23,8 @@ Confirm:
 - API readiness: `http://127.0.0.1:8000/ready`
 - Admin Console: `http://127.0.0.1:3000/`
 
+PostgreSQL, Redis, and the S3-compatible object-storage port bind to host loopback by default. Application containers use the private Compose network for service-to-service access; do not expose infrastructure ports publicly unless the deployment has an explicit network-security design.
+
 Do not commit `.env` or real credentials.
 
 ## 2. Deterministic commercial validation
