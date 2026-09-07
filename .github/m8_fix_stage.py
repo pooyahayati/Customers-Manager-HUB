@@ -13,8 +13,8 @@ def replace_once(path: str, old: str, new: str) -> None:
 
 replace_once(
     "apps/api/src/customers_manager_hub/agent_runtime.py",
-    "from time import perf_counter\n",
-    "from time import perf_counter\nfrom typing import cast\n",
+    "from datetime import UTC, datetime, timedelta\nfrom uuid import UUID, uuid4\n",
+    "from datetime import UTC, datetime, timedelta\nfrom typing import cast\nfrom uuid import UUID, uuid4\n",
 )
 
 replace_once(
