@@ -20,6 +20,13 @@ from customers_manager_hub.channel_runtime import (
 from customers_manager_hub.config import Settings, get_settings
 from customers_manager_hub.database import AsyncSessionFactory, create_database
 from customers_manager_hub.health import check_postgres, check_redis
+from customers_manager_hub.knowledge_queue import KnowledgeJob, KnowledgeJobQueue
+from customers_manager_hub.knowledge_runtime import (
+    KnowledgeRuntime,
+    KnowledgeRuntimeError,
+    process_knowledge_source,
+)
+from customers_manager_hub.knowledge_storage import ObjectStorage, build_object_storage
 from customers_manager_hub.logging_config import configure_logging
 from customers_manager_hub.telegram import TelegramAdapter
 from customers_manager_hub.tool_runtime import ToolRuntime, build_tool_adapter_registry
@@ -46,6 +53,7 @@ async def process_job(
     settings: Settings,
     session_factory: AsyncSessionFactory,
     tool_runtime: ToolRuntime | None = None,
+    knowledge_runtime: KnowledgeRuntime | None = None,
 ) -> None:
     try:
         await process_channel_event(session_factory, channel_registry, settings, job.event_id)
@@ -75,6 +83,7 @@ async def process_job(
                 settings,
                 job.event_id,
                 tool_runtime=tool_runtime,
+                knowledge_runtime=knowledge_runtime,
             )
         except AgentRuntimeError as exc:
             log = logger.warning if exc.retryable else logger.error
@@ -94,6 +103,33 @@ async def process_job(
     await queue.acknowledge(job.stream_id)
 
 
+async def process_knowledge_job(
+    job: KnowledgeJob,
+    queue: KnowledgeJobQueue,
+    session_factory: AsyncSessionFactory,
+    storage: ObjectStorage,
+    ai_gateway: AIGateway,
+) -> None:
+    try:
+        await process_knowledge_source(session_factory, storage, ai_gateway, job.source_id)
+    except KnowledgeRuntimeError as exc:
+        log = logger.warning if exc.retryable else logger.error
+        log(
+            "knowledge ingestion job failed",
+            extra={
+                "source_id": str(job.source_id),
+                "error_code": exc.code,
+                "retryable": exc.retryable,
+            },
+        )
+        if exc.retryable:
+            return
+    except Exception:
+        logger.exception("knowledge ingestion job failed", extra={"source_id": str(job.source_id)})
+        return
+    await queue.acknowledge(job.stream_id)
+
+
 async def run_worker_async(settings: Settings, stop_event: asyncio.Event | None = None) -> None:
     if not await dependencies_ready(settings):
         logger.error("worker dependencies unavailable")
@@ -101,8 +137,10 @@ async def run_worker_async(settings: Settings, stop_event: asyncio.Event | None 
 
     engine, session_factory = create_database(settings)
     redis_client = create_channel_redis(settings)
-    queue = ChannelJobQueue(redis_client)
-    await queue.ensure_group()
+    channel_queue = ChannelJobQueue(redis_client)
+    knowledge_queue = KnowledgeJobQueue(redis_client)
+    await channel_queue.ensure_group()
+    await knowledge_queue.ensure_group()
     consumer_name = f"{socket.gethostname()}-{os.getpid()}"
     resolved_stop_event = stop_event or asyncio.Event()
     loop = asyncio.get_running_loop()
@@ -134,27 +172,46 @@ async def run_worker_async(settings: Settings, stop_event: asyncio.Event | None 
                 session_factory,
                 build_tool_adapter_registry(external_http_client),
             )
+            knowledge_runtime = KnowledgeRuntime(session_factory, ai_gateway)
+            knowledge_storage = build_object_storage(settings)
             logger.info("worker started", extra={"consumer": consumer_name})
             last_reclaim = 0.0
             while not resolved_stop_event.is_set():
-                jobs: list[ChannelJob] = []
+                channel_jobs: list[ChannelJob] = []
+                knowledge_jobs: list[KnowledgeJob] = []
                 now = monotonic()
                 if now - last_reclaim >= _RECLAIM_INTERVAL_SECONDS:
-                    jobs.extend(await queue.reclaim(consumer_name))
+                    channel_jobs.extend(await channel_queue.reclaim(consumer_name))
+                    knowledge_jobs.extend(await knowledge_queue.reclaim(consumer_name))
                     last_reclaim = now
-                if not jobs:
-                    jobs.extend(await queue.consume(consumer_name, block_ms=1_000))
-                for job in jobs:
+                if not knowledge_jobs:
+                    knowledge_jobs.extend(await knowledge_queue.consume(consumer_name, block_ms=1))
+                for knowledge_job in knowledge_jobs:
+                    if resolved_stop_event.is_set():
+                        break
+                    await process_knowledge_job(
+                        knowledge_job,
+                        knowledge_queue,
+                        session_factory,
+                        knowledge_storage,
+                        ai_gateway,
+                    )
+                if resolved_stop_event.is_set():
+                    break
+                if not channel_jobs:
+                    channel_jobs.extend(await channel_queue.consume(consumer_name, block_ms=1_000))
+                for channel_job in channel_jobs:
                     if resolved_stop_event.is_set():
                         break
                     await process_job(
-                        job,
-                        queue,
+                        channel_job,
+                        channel_queue,
                         channel_registry,
                         ai_gateway,
                         settings,
                         session_factory,
                         tool_runtime,
+                        knowledge_runtime,
                     )
     finally:
         await redis_client.aclose()

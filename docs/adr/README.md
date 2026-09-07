@@ -59,5 +59,6 @@ If an accepted decision materially changes, create a new ADR that supersedes the
 - ADR-012 — Versioned Prompts and Durable Agent Runs
 - ADR-013 — Website Chat Public Session and Polling Transport
 - ADR-014 — Canonical Tool Runtime and Structured Agent Tool Loop
+- ADR-015 — S3-Compatible Object Storage and PostgreSQL pgvector RAG
 
 Additional ADRs should be created only when a material implementation decision becomes imminent.

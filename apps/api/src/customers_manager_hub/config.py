@@ -32,6 +32,13 @@ class Settings(BaseSettings):
     openai_api_key: SecretStr | None = None
     google_gemini_api_key: SecretStr | None = None
 
+    s3_endpoint_url: str | None = None
+    s3_region: str = "us-east-1"
+    s3_bucket: str = "cmh-knowledge"
+    s3_access_key_id: SecretStr | None = None
+    s3_secret_access_key: SecretStr | None = None
+    s3_force_path_style: bool = True
+
     @field_validator("app_log_level")
     @classmethod
     def validate_log_level(cls, value: str) -> str:
@@ -70,6 +77,39 @@ class Settings(BaseSettings):
             raise ValueError("TELEGRAM_WEBHOOK_BASE_URL must not include query or fragment")
         return normalized
 
+    @field_validator("s3_endpoint_url")
+    @classmethod
+    def validate_s3_endpoint_url(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip().rstrip("/")
+        if not normalized:
+            return None
+        parsed = urlsplit(normalized)
+        if parsed.scheme not in {"http", "https"} or parsed.hostname is None:
+            raise ValueError("S3_ENDPOINT_URL must be an absolute HTTP(S) URL")
+        if parsed.username is not None or parsed.password is not None:
+            raise ValueError("S3_ENDPOINT_URL must not contain user information")
+        if parsed.query or parsed.fragment:
+            raise ValueError("S3_ENDPOINT_URL must not include query or fragment")
+        return normalized
+
+    @field_validator("s3_bucket")
+    @classmethod
+    def validate_s3_bucket(cls, value: str) -> str:
+        normalized = value.strip()
+        if not 3 <= len(normalized) <= 63:
+            raise ValueError("S3_BUCKET must contain 3 to 63 characters")
+        if normalized[0] in {".", "-"} or normalized[-1] in {".", "-"}:
+            raise ValueError("S3_BUCKET must start and end with a letter or digit")
+        if any(
+            character not in "abcdefghijklmnopqrstuvwxyz0123456789.-" for character in normalized
+        ):
+            raise ValueError("S3_BUCKET must use lowercase DNS-compatible characters")
+        if ".." in normalized or ".-" in normalized or "-." in normalized:
+            raise ValueError("S3_BUCKET contains an invalid label boundary")
+        return normalized
+
     @model_validator(mode="after")
     def reject_insecure_production_defaults(self) -> Self:
         if self.app_env == "production" and "change-me" in self.database_url:
@@ -86,6 +126,16 @@ class Settings(BaseSettings):
             and self.encryption_key.get_secret_value() == "change-me"
         ):
             raise ValueError("Staging/production ENCRYPTION_KEY must not use a placeholder")
+        if (self.s3_access_key_id is None) != (self.s3_secret_access_key is None):
+            raise ValueError("S3 access key ID and secret access key must be configured together")
+        if self.s3_endpoint_url is not None and self.s3_access_key_id is None:
+            raise ValueError("Configured S3 endpoint requires explicit S3 credentials")
+        if (
+            self.app_env in {"staging", "production"}
+            and self.s3_endpoint_url is not None
+            and not self.s3_endpoint_url.startswith("https://")
+        ):
+            raise ValueError("Staging/production S3 endpoint must use HTTPS")
         return self
 
     @property
