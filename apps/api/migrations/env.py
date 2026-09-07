@@ -5,6 +5,7 @@ from sqlalchemy import create_engine, pool
 
 from customers_manager_hub import agent_models as _agent_models  # noqa: F401
 from customers_manager_hub import ai_models as _ai_models  # noqa: F401
+from customers_manager_hub import analytics_models as _analytics_models  # noqa: F401
 from customers_manager_hub import channel_models as _channel_models  # noqa: F401
 from customers_manager_hub import handoff_models as _handoff_models  # noqa: F401
 from customers_manager_hub import knowledge_models as _knowledge_models  # noqa: F401
