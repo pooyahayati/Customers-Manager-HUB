@@ -22,7 +22,14 @@ ENV PATH="/app/.venv/bin:${PATH}" \
 
 WORKDIR /app
 
-RUN groupadd --gid 10001 app \
+# The application image is immutable at runtime. Remove pip/ensurepip and their
+# vendored dependency tree from the final stage to reduce attack surface.
+RUN rm -rf \
+        /usr/local/lib/python3.14/site-packages/pip \
+        /usr/local/lib/python3.14/site-packages/pip-*.dist-info \
+        /usr/local/lib/python3.14/ensurepip \
+    && rm -f /usr/local/bin/pip /usr/local/bin/pip3 /usr/local/bin/pip3.14 \
+    && groupadd --gid 10001 app \
     && useradd --uid 10001 --gid 10001 --create-home --shell /usr/sbin/nologin app
 
 COPY --from=builder /app/.venv /app/.venv
