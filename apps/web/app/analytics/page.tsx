@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 const kpis = [
   ["Conversations", "Conversation volume in the selected reporting window"],
   ["Unique contacts", "Customers with inbound activity in the reporting window"],
@@ -22,7 +24,7 @@ export default function AnalyticsPage() {
             authorization or pricing logic in the web application.
           </p>
         </div>
-        <a href="/">System home</a>
+        <Link href="/">System home</Link>
       </header>
 
       <section className="analytics-grid" aria-label="Analytics KPI foundation">
