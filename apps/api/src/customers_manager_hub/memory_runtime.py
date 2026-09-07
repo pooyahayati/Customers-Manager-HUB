@@ -348,11 +348,14 @@ async def extract_customer_memory_from_event(
             )
             expires_at = _candidate_expiry(candidate.category, observed_at)
             if existing is not None:
-                if (
-                    existing.source_type == MemorySourceType.MANUAL.value
-                    and existing.verified_at is not None
-                ):
+                if existing.source_type == MemorySourceType.MANUAL.value:
                     continue
+                if existing.observed_at > observed_at:
+                    continue
+                preserve_verification = (
+                    existing.value.casefold() == candidate.value.casefold()
+                    and existing.evidence_kind == candidate.evidence_kind.value
+                )
                 existing.value = candidate.value
                 existing.evidence_kind = candidate.evidence_kind.value
                 existing.confidence = candidate.confidence
@@ -362,8 +365,9 @@ async def extract_customer_memory_from_event(
                 existing.created_by_user_id = None
                 existing.observed_at = observed_at
                 existing.expires_at = expires_at
-                existing.verified_at = None
-                existing.verified_by_user_id = None
+                if not preserve_verification:
+                    existing.verified_at = None
+                    existing.verified_by_user_id = None
                 written += 1
                 continue
 
