@@ -79,7 +79,9 @@ class Settings(BaseSettings):
         if value is None:
             return None
         encoded = value.get_secret_value().strip()
-        if not encoded or encoded == "change-me":
+        if not encoded:
+            return None
+        if encoded == "change-me":
             raise ValueError("ENCRYPTION_KEY must be a generated 32-byte base64 key")
         try:
             decoded = base64.b64decode(encoded, altchars=b"-_", validate=True)
@@ -182,7 +184,11 @@ class Settings(BaseSettings):
             raise ValueError("Staging/production S3 endpoint must use HTTPS")
         if self.app_env in {"staging", "production"} and self.s3_access_key_id is not None:
             access_key = self.s3_access_key_id.get_secret_value().strip()
-            secret_key = self.s3_secret_access_key.get_secret_value().strip() if self.s3_secret_access_key else ""
+            secret_key = (
+                self.s3_secret_access_key.get_secret_value().strip()
+                if self.s3_secret_access_key is not None
+                else ""
+            )
             if access_key in {"cmh-dev-access", "change-me"} or secret_key in {
                 "cmh-dev-secret",
                 "change-me",
