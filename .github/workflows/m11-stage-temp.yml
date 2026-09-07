@@ -1,0 +1,142 @@
+name: M11 Stage Temporary
+
+on:
+  push:
+    branches: [feat/human-handoff]
+
+permissions:
+  contents: read
+
+jobs:
+  stage:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version-file: .python-version
+      - uses: astral-sh/setup-uv@v6
+      - name: Patch staged M11 integration
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          env = Path('apps/api/migrations/env.py')
+          text = env.read_text()
+          anchor = 'from customers_manager_hub import knowledge_models as _knowledge_models  # noqa: F401\n'
+          replacement = anchor + 'from customers_manager_hub import handoff_models as _handoff_models  # noqa: F401\n'
+          if anchor not in text:
+              raise SystemExit('migration env anchor missing')
+          env.write_text(text.replace(anchor, replacement, 1))
+
+          models = Path('apps/api/src/customers_manager_hub/agent_models.py')
+          text = models.read_text()
+          old_enum = '''class AgentRunStatus(StrEnum):\n    PENDING = "pending"\n    GENERATED = "generated"\n    SUCCEEDED = "succeeded"\n    FAILED = "failed"\n'''
+          new_enum = '''class AgentRunStatus(StrEnum):\n    PENDING = "pending"\n    GENERATED = "generated"\n    PAUSED = "paused"\n    SUCCEEDED = "succeeded"\n    FAILED = "failed"\n'''
+          if old_enum not in text:
+              raise SystemExit('agent status enum anchor missing')
+          text = text.replace(old_enum, new_enum, 1)
+          old_check = '''            "status IN ('pending', 'generated', 'succeeded', 'failed')",\n'''
+          new_check = '''            "status IN ('pending', 'generated', 'paused', 'succeeded', 'failed')",\n'''
+          if old_check not in text:
+              raise SystemExit('agent status constraint anchor missing')
+          models.write_text(text.replace(old_check, new_check, 1))
+
+          main = Path('apps/api/src/customers_manager_hub/main.py')
+          text = main.read_text()
+          import_anchor = 'from customers_manager_hub.health import router as health_router\n'
+          import_replacement = import_anchor + 'from customers_manager_hub.handoff import router as handoff_router\n'
+          if import_anchor not in text:
+              raise SystemExit('main import anchor missing')
+          text = text.replace(import_anchor, import_replacement, 1)
+          router_anchor = '    application.include_router(conversations_router)\n'
+          router_replacement = router_anchor + '    application.include_router(handoff_router)\n'
+          if router_anchor not in text:
+              raise SystemExit('main router anchor missing')
+          main.write_text(text.replace(router_anchor, router_replacement, 1))
+
+          agent = Path('apps/api/src/customers_manager_hub/agent_runtime.py')
+          text = agent.read_text()
+          import_anchor = '''from customers_manager_hub.database import AsyncSessionFactory\n'''
+          import_replacement = '''from customers_manager_hub.database import AsyncSessionFactory\nfrom customers_manager_hub.handoff_runtime import (\n    HandoffRuntimeError,\n    is_event_ai_paused,\n    pause_for_tool_approval,\n)\n'''
+          if import_anchor not in text:
+              raise SystemExit('agent handoff import anchor missing')
+          text = text.replace(import_anchor, import_replacement, 1)
+          tool_import_anchor = '''from customers_manager_hub.tool_runtime import (\n    ModelToolDefinition,\n    ToolRuntime,\n    ToolRuntimeError,\n)\n'''
+          tool_import_replacement = '''from customers_manager_hub.tool_models import ToolExecutionStatus\nfrom customers_manager_hub.tool_runtime import (\n    ModelToolDefinition,\n    ToolRuntime,\n    ToolRuntimeError,\n)\n'''
+          if tool_import_anchor not in text:
+              raise SystemExit('agent tool import anchor missing')
+          text = text.replace(tool_import_anchor, tool_import_replacement, 1)
+          result_anchor = '''        tool_result = await _execute_tool_with_lease_renewal(\n            session_factory,\n            claim,\n            tool_runtime,\n            tenant_id=snapshot.tenant_id,\n            agent_id=snapshot.agent_id,\n            agent_run_id=snapshot.run_id,\n            call_ordinal=tool_calls,\n            qualified_name=tool_name,\n            arguments=arguments,\n            renew_interval_seconds=renew_interval_seconds,\n        )\n        working_input += (\n'''
+          result_replacement = '''        tool_result = await _execute_tool_with_lease_renewal(\n            session_factory,\n            claim,\n            tool_runtime,\n            tenant_id=snapshot.tenant_id,\n            agent_id=snapshot.agent_id,\n            agent_run_id=snapshot.run_id,\n            call_ordinal=tool_calls,\n            qualified_name=tool_name,\n            arguments=arguments,\n            renew_interval_seconds=renew_interval_seconds,\n        )\n        if tool_result.status == ToolExecutionStatus.APPROVAL_REQUIRED:\n            try:\n                handoff_id = await pause_for_tool_approval(\n                    session_factory,\n                    tenant_id=snapshot.tenant_id,\n                    conversation_id=snapshot.conversation_id,\n                    agent_run_id=snapshot.run_id,\n                    tool_execution_id=tool_result.execution_id,\n                )\n            except HandoffRuntimeError as exc:\n                raise AgentRuntimeError(exc.code, retryable=True) from exc\n            if handoff_id is not None:\n                raise AgentRuntimeError("agent_handoff_paused", retryable=False)\n        working_input += (\n'''
+          if result_anchor not in text:
+              raise SystemExit('agent tool result anchor missing')
+          text = text.replace(result_anchor, result_replacement, 1)
+          process_anchor = ''') -> None:\n    run_id = await _resolve_or_create_run(session_factory, event_id)\n'''
+          process_replacement = ''') -> None:\n    if await is_event_ai_paused(session_factory, event_id):\n        return\n    run_id = await _resolve_or_create_run(session_factory, event_id)\n'''
+          if process_anchor not in text:
+              raise SystemExit('agent process guard anchor missing')
+          text = text.replace(process_anchor, process_replacement, 1)
+          catch_anchor = '''    except AgentRuntimeError as exc:\n        if exc.code not in {"agent_run_busy", "agent_run_lease_lost"}:\n'''
+          catch_replacement = '''    except AgentRuntimeError as exc:\n        if exc.code not in {\n            "agent_run_busy",\n            "agent_run_lease_lost",\n            "agent_handoff_paused",\n        }:\n'''
+          if catch_anchor not in text:
+              raise SystemExit('agent error anchor missing')
+          agent.write_text(text.replace(catch_anchor, catch_replacement, 1))
+
+          worker = Path('apps/api/src/customers_manager_hub/worker.py')
+          text = worker.read_text()
+          import_anchor = 'from customers_manager_hub.health import check_postgres, check_redis\n'
+          import_replacement = import_anchor + 'from customers_manager_hub.handoff_runtime import HandoffRuntimeError, evaluate_event_escalation\n'
+          if import_anchor not in text:
+              raise SystemExit('worker handoff import anchor missing')
+          text = text.replace(import_anchor, import_replacement, 1)
+          agent_anchor = '''        try:\n            await process_agent_event(\n'''
+          agent_replacement = '''        try:\n            handoff_id = await evaluate_event_escalation(session_factory, job.event_id)\n        except HandoffRuntimeError as exc:\n            logger.error(\n                "handoff evaluation failed",\n                extra={"event_id": str(job.event_id), "error_code": exc.code},\n            )\n            return\n        if handoff_id is not None:\n            await queue.acknowledge(job.stream_id)\n            return\n        try:\n            await process_agent_event(\n'''
+          if agent_anchor not in text:
+              raise SystemExit('worker agent anchor missing')
+          worker.write_text(text.replace(agent_anchor, agent_replacement, 1))
+
+          runtime = Path('apps/api/src/customers_manager_hub/handoff_runtime.py')
+          text = runtime.read_text()
+          text = text.replace('from sqlalchemy.exc import IntegrityError\n', 'from sqlalchemy.exc import IntegrityError\nfrom sqlalchemy.ext.asyncio import AsyncSession\n', 1)
+          text = text.replace('async def _active_handoff(\n    db,\n', 'async def _active_handoff(\n    db: AsyncSession,\n', 1)
+          runtime.write_text(text)
+
+          api = Path('apps/api/src/customers_manager_hub/handoff.py')
+          text = api.read_text()
+          old = '''    conversation, _, binding, _ = await _load_conversation_contact_binding(\n        db, context.tenant.id, conversation_id\n    )\n'''
+          new = '''    conversation, _, binding, account = await _load_conversation_contact_binding(\n        db, context.tenant.id, conversation_id\n    )\n'''
+          if old not in text:
+              raise SystemExit('assist binding anchor missing')
+          text = text.replace(old, new, 1)
+          old_channel = '''    channel_type = ChannelType((await db.scalar(select(ChannelAccount.channel_type).where(ChannelAccount.id == binding.channel_account_id))) or ChannelType.TELEGRAM.value)\n'''
+          new_channel = '''    if account is None:\n        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Channel account unavailable")\n    channel_type = ChannelType(account.channel_type)\n'''
+          if old_channel not in text:
+              raise SystemExit('assist channel anchor missing')
+          api.write_text(text.replace(old_channel, new_channel, 1))
+          PY
+      - run: uv sync --frozen
+      - name: Format staged M11 source
+        run: |
+          uv run ruff check --fix apps/api/src apps/api/tests apps/api/migrations
+          uv run ruff format apps/api/src apps/api/tests apps/api/migrations
+      - run: uv run ruff check apps/api/src apps/api/tests apps/api/migrations
+      - run: uv run ruff format --check apps/api/src apps/api/tests apps/api/migrations
+      - run: uv run pyright apps/api/src apps/api/tests
+      - name: Unit regression
+        env:
+          RUN_DB_INTEGRATION: "0"
+        run: uv run pytest apps/api/tests
+      - uses: actions/upload-artifact@v5
+        with:
+          name: m11-staged-source
+          path: |
+            apps/api/migrations/env.py
+            apps/api/migrations/versions/0009_human_handoff.py
+            apps/api/src/customers_manager_hub/agent_models.py
+            apps/api/src/customers_manager_hub/agent_runtime.py
+            apps/api/src/customers_manager_hub/handoff.py
+            apps/api/src/customers_manager_hub/handoff_models.py
+            apps/api/src/customers_manager_hub/handoff_runtime.py
+            apps/api/src/customers_manager_hub/main.py
+            apps/api/src/customers_manager_hub/worker.py
