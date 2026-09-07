@@ -64,5 +64,6 @@ If an accepted decision materially changes, create a new ADR that supersedes the
 - ADR-017 — Conversation Handoff State Machine and Operator Control Boundary
 - ADR-018 — Structured Customer Memory and Trust Boundary
 - ADR-019 — Deterministic Tenant Policy Engine
+- ADR-020 — Transactional Analytics and Effective-Dated AI Pricing
 
 Additional ADRs should be created only when a material implementation decision becomes imminent.
