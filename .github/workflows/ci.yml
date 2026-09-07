@@ -31,7 +31,11 @@ jobs:
       - name: Validate operations scripts
         run: |
           python -m py_compile scripts/load_http.py
-          bash -n scripts/backup_postgres.sh scripts/restore_postgres.sh scripts/validate_commercial_mvp.sh
+          bash -n \
+            scripts/backup_postgres.sh \
+            scripts/restore_postgres.sh \
+            scripts/validate_commercial_mvp.sh \
+            scripts/smoke_deployment.sh
       - name: Unit regression
         env:
           RUN_DB_INTEGRATION: "0"
@@ -114,7 +118,12 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - name: Validate Compose
-        run: docker compose -f compose.yaml config --quiet
+        run: |
+          docker compose -f compose.yaml config --quiet
+          CMH_API_IMAGE=ghcr.io/example/customers-manager-hub-api:0.1.0 \
+          CMH_WEB_IMAGE=ghcr.io/example/customers-manager-hub-web:0.1.0 \
+          CMH_POSTGRES_IMAGE=ghcr.io/example/customers-manager-hub-postgres:0.1.0 \
+            docker compose -f compose.yaml -f compose.release.yaml config --quiet
       - name: Build application images
         run: docker compose -f compose.yaml build api worker web
       - name: Start infrastructure
