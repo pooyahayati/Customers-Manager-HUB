@@ -1,28 +1,31 @@
 # Customers Manager HUB
 
-Multi-tenant, omnichannel AI customer interaction platform for customer support, sales assistance, business knowledge, tool execution, customer memory, and human handoff.
+Multi-tenant, omnichannel AI customer interaction platform for customer support, sales assistance, business knowledge, live tools, customer memory, policy enforcement, human handoff, and operational analytics.
 
-> Current status: Milestones M0 through M10 are implemented and merged. The next roadmap milestone is M11 — Human Handoff & Operator Inbox.
+The repository implements the M0–M16 MVP roadmap as a reusable platform. Commercial acceptance is validated through persistent CI, Security gates, and the M16 fresh-install validation runbook.
 
 ## Product Direction
 
-Customers Manager HUB is designed as a reusable commercial platform, not a channel-specific chatbot.
+Customers Manager HUB is designed as a reusable business platform, not a channel-specific chatbot or a tenant-specific codebase.
 
-The implemented platform foundation already supports:
+Core capabilities include:
 
-- Multi-tenant authentication, RBAC, tenant isolation, and audit foundations.
+- Multi-tenant authentication, RBAC, tenant isolation, and privileged-action audit.
 - Canonical contacts, external identities, conversations, messages, and attachment metadata.
-- Telegram and Website Chat using the same channel/conversation core.
+- Telegram and Website Chat through the same channel/conversation runtime.
 - Configurable Agents and versioned/published Prompts.
-- Provider-independent AI task routing across OpenAI, Gemini, and deterministic test providers.
-- Tool Runtime with tenant/agent authorization, encrypted credentials, Generic REST, business-reference, and Google Sheets paths.
-- Tenant-scoped Knowledge Base and RAG using PDF/XLSX ingestion, S3-compatible object storage, embeddings, and pgvector retrieval.
-- Telegram voice transcription through the configured `voice_transcription` task profile, with Gemini-first routing available by configuration and provider fallback.
-- Docker Compose deployment for the API, Worker, Web, PostgreSQL/pgvector, Redis, and S3-compatible object storage.
+- Provider-independent AI Gateway with tenant-scoped task model routing across OpenAI/Gemini-compatible routes.
+- Telegram voice transcription through the configured `voice_transcription` task profile.
+- Safe Tool Runtime with encrypted credentials, authorization, approval, policy enforcement, and execution traces.
+- Tenant-owned Knowledge Base/RAG for PDF/XLSX sources using embeddings and pgvector.
+- Human handoff/operator queue with AI pause/resume and channel-correct human replies.
+- Structured customer memory with fact/inference separation, provenance, confidence, freshness, and verification.
+- Deterministic Policy Engine for autonomy, tools, approvals, message capabilities, business hours, and handoff triggers.
+- AI usage/cost and operational analytics.
+- Production hardening: rate limiting, request correlation, file/SSRF protections, finite retries/DLQ, backup/restore, load probes, dependency/secret/container scanning, and operational runbooks.
+- Docker Compose deployment for API, Worker, Web, PostgreSQL/pgvector, Redis, and S3-compatible object storage.
 
-The remaining MVP roadmap adds Human Handoff, Customer Memory, Policy Engine, Analytics/Cost, Production Hardening, and Commercial MVP validation.
-
-## Current Roadmap Status
+## MVP Roadmap Status
 
 | Milestone | Status |
 |---|---|
@@ -37,76 +40,58 @@ The remaining MVP roadmap adds Human Handoff, Customer Memory, Policy Engine, An
 | M8 — Tool Runtime & Live Business Data | Complete |
 | M9 — Knowledge Base & RAG | Complete |
 | M10 — Voice Transcription End-to-End | Complete |
-| M11 — Human Handoff & Operator Inbox | Next |
-| M12 — Customer Memory & Intelligence | Planned |
-| M13 — Policy Engine | Planned |
-| M14 — Analytics, Usage & Cost | Planned |
-| M15 — Security & Production Hardening | Planned |
-| M16 — Commercial MVP Validation | Planned |
+| M11 — Human Handoff & Operator Inbox | Complete |
+| M12 — Customer Memory & Intelligence | Complete |
+| M13 — Policy Engine | Complete |
+| M14 — Analytics, Usage & Cost | Complete |
+| M15 — Security & Production Hardening | Complete |
+| M16 — Commercial MVP Validation | Complete through the repository validation gate |
 
-See [ROADMAP.md](ROADMAP.md) for milestone scope and exit gates.
+See [ROADMAP.md](ROADMAP.md) for milestone scope and exit criteria and [Commercial MVP Validation](docs/operations/COMMERCIAL-MVP-VALIDATION.md) for the final scenario.
 
 ## Architecture
 
 Current architecture:
 
-- Modular monolith backend with explicit internal boundaries.
-- Independent asynchronous worker process using the same backend codebase/image.
-- FastAPI backend API.
-- Next.js Admin Console runtime.
-- Separate lightweight Website Chat widget/runtime.
-- Multi-tenant isolation by design.
-- Provider-independent AI Gateway.
-- Task-based AI model routing.
-- Channel adapter architecture.
-- PostgreSQL 18 + pgvector as the canonical datastore/vector store.
-- Redis Streams for asynchronous channel/background processing and Redis for coordination.
-- S3-compatible object storage with SeaweedFS as the current Docker reference backend.
+- Modular monolith backend with explicit domain/runtime boundaries.
+- Independent asynchronous Worker using the same backend codebase/image.
+- FastAPI API.
+- Next.js Admin Console.
+- Lightweight embeddable Website Chat runtime.
+- PostgreSQL 18 + pgvector as canonical relational/vector storage.
+- Redis Streams for asynchronous channel/knowledge work and Redis for coordination/rate limiting.
+- S3-compatible knowledge storage; SeaweedFS is the Docker reference implementation.
+- Provider-independent AI Gateway and task-profile routing.
+- Channel adapters for Telegram and Website Chat.
 - Docker Compose deployment.
 
-The project deliberately avoids premature microservices. Module boundaries are designed so service extraction remains possible if scale or operational requirements justify it.
+The project deliberately avoids premature microservices. Service extraction remains possible where scale or operational requirements justify it.
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) for the technical architecture.
+See [ARCHITECTURE.md](ARCHITECTURE.md).
 
-## AI Task Routing
+## Core Conversation Paths
 
-The platform does not assume one model handles all AI operations.
-
-| Task | Provider | Model |
-|---|---|---|
-| Customer response | Configurable | Configurable |
-| Voice transcription | Configurable | Configurable |
-| Intent classification | Configurable | Configurable |
-| Conversation summary | Configurable | Configurable |
-| Customer memory extraction | Configurable | Configurable |
-| Embeddings | Configurable | Configurable |
-| Complex reasoning/tool use | Configurable | Configurable |
-
-Exact provider/model identifiers are configuration data rather than business-code dependencies.
-
-For voice transcription, M10 recommends Gemini `gemini-3.5-transcribe` as the first configured route, while provider/model resolution still occurs through the tenant `voice_transcription` task profile and may fall back to other configured providers.
-
-## Implemented End-to-End Capabilities
-
-### Text conversation path
+### Text
 
 ```text
 Telegram / Website Chat
         ↓
 Canonical Contact / Conversation / Message
         ↓
-Agent + Published Prompt
+Policy + Handoff Gate
         ↓
-RAG + Approved Tools when needed
+Agent + Published Prompt + Approved Customer Memory
         ↓
-AI Gateway / Task Routing
+RAG + Authorized Tools when required
+        ↓
+AI Gateway / Tenant Task Routing
         ↓
 Persisted Outbound Message
         ↓
 Originating Channel
 ```
 
-### Telegram voice path
+### Telegram voice
 
 ```text
 Telegram Voice
@@ -117,92 +102,132 @@ voice_transcription Task Profile
       ↓
 Configured Provider / Fallback
       ↓
-Persist Transcript on Original Voice Message
+Transcript on Original Voice Message
       ↓
-Normal Agent + RAG + Tool Runtime
+Normal Policy + Agent + RAG + Tool Runtime
       ↓
 Telegram Response
 ```
 
-Human operator takeover is intentionally the next capability and is not yet implemented.
+### Human handoff
 
-## Repository Documents
+```text
+Conversation
+     ↓
+Policy / Customer / Tool Approval Escalation
+     ↓
+Queued → Claimed Human Handoff
+     ↓
+Autonomous AI Paused
+     ↓
+Operator Reply through Originating Channel
+     ↓
+Resolved / Cancelled → Optional AI Resume
+```
 
-- `AGENTS.md` — mandatory engineering and implementation rules.
-- `PRD.md` — product requirements and MVP scope.
-- `ARCHITECTURE.md` — architecture and module boundaries.
-- `ROADMAP.md` — milestone sequence and delivery gates.
-- `docs/adr/` — Architecture Decision Records.
-- `docs/development/TECHNICAL_BASELINE.md` — approved runtime/toolchain baseline.
-- `specs/` — milestone implementation specifications, including M1 through M10.
-- `.env.example` — non-secret environment configuration template.
+## AI Configuration
 
-## Development Governance
+Model selection is tenant-scoped and task-based. Supported task profiles include:
 
-Before implementing a feature:
+- customer response;
+- voice transcription;
+- intent classification;
+- conversation summary;
+- customer memory extraction;
+- embedding.
 
-1. Read `AGENTS.md`.
-2. Read relevant PRD/architecture sections.
-3. Read applicable ADRs.
-4. Work from a scoped task/specification.
-5. Add appropriate tests.
-6. Review tenant isolation, authorization, security, observability, and Docker impact.
-
-Material architecture changes require documentation/ADR updates before implementation proceeds.
+OpenAI/Gemini API keys are deployment secrets supplied through runtime environment configuration. Secrets are not permitted inside AI route parameters. Provider/model identifiers remain configuration data rather than business-code dependencies.
 
 ## Local Development
 
-Configure a local environment from the non-secret template:
+Create local configuration from the non-secret template:
 
 ```bash
 cp .env.example .env
 ```
 
-Start the current Docker Compose stack:
+Start the supported stack:
 
 ```bash
 make up
 make ps
 ```
 
-The stack includes API, Worker, Web, PostgreSQL/pgvector, Redis, and S3-compatible object storage.
-
 Useful commands:
 
 ```bash
+make infra-check
 make logs
+make migrate
+make mvp-validate
 make down
-make clean
 ```
 
-`make clean` removes local project volumes and therefore deletes local PostgreSQL, Redis, and object-storage development data.
+`make mvp-validate` creates a disposable `cmh_mvp_validation` PostgreSQL database and uses Redis DB 15 for the integration regression. It does not intentionally use or truncate the normal development database.
+
+`make clean` removes local project volumes and therefore deletes local PostgreSQL, Redis, and object-storage data. Use it only for disposable environments.
 
 Do not commit `.env` or real credentials.
 
-## Validation Model
+## Commercial MVP Validation
 
-Each completed milestone is required by the roadmap to address tests, security, documentation, and Docker impact before completion.
+M16 acceptance combines three persistent gates:
 
-M10's final validation covered frozen dependency installation, Ruff lint/format, Pyright strict, unit regression, PostgreSQL/pgvector migrations and Alembic drift checks, Redis-backed integration suites, voice transcription E2E behavior, Docker image builds, Compose startup/readiness, and non-root API/Worker execution.
+1. **Docker and Compose** — build, migration, backup/restore smoke, startup/readiness, load probe, and non-root runtime.
+2. **Backend integration** — the commercial validation harness runs the complete `test_*_integration.py` regression and maps it to all required business capabilities.
+3. **Security** — locked Python/Node dependency audit, repository secret scan, and runtime-rootfs container vulnerability scan.
 
-A persistent repository CI workflow and enforced branch protection are being established separately; historical milestone validation has already been executed before merge.
+External OpenAI/Gemini/Telegram/business-API calls remain environment-specific smoke tests. CI uses deterministic adapters so no repository secret or third-party availability is required.
 
-## Documentation Priority
+See [docs/operations/COMMERCIAL-MVP-VALIDATION.md](docs/operations/COMMERCIAL-MVP-VALIDATION.md).
 
-Project decisions should be interpreted in this order:
+## Production Operations
 
-1. Explicit approved product-owner decision.
-2. Security and tenant-isolation invariants.
-3. Accepted ADRs.
-4. `PRD.md`.
-5. `ARCHITECTURE.md`.
-6. `AGENTS.md`.
-7. Feature/task specifications.
+M15 production hardening includes:
 
-## Branch Strategy
+- Redis-backed distributed rate limiting;
+- trusted-proxy handling;
+- request correlation and structured allowlisted logs;
+- production configuration guards;
+- PDF/XLSX ingestion hardening;
+- Tool Runtime SSRF controls;
+- finite Redis Stream retry budgets and DLQs;
+- PostgreSQL backup/guarded restore procedure;
+- migration/upgrade, rollback, retention, and incident runbooks;
+- load-probe smoke;
+- persistent dependency, secret, and container scanning.
 
-The default branch is `main` and should remain stable. Feature, milestone, documentation, and infrastructure changes should use scoped branches and be merged through reviewed pull requests.
+See `docs/operations/` for operational procedures.
+
+## Repository Documents
+
+- `AGENTS.md` — engineering/implementation rules.
+- `PRD.md` — product requirements and MVP scope.
+- `ARCHITECTURE.md` — architecture and invariants.
+- `ROADMAP.md` — milestone sequence and exit gates.
+- `specs/` — milestone implementation/acceptance specifications.
+- `docs/adr/` — Architecture Decision Records.
+- `docs/operations/` — production and commercial validation runbooks.
+- `.env.example` — non-secret environment template.
+
+## Validation and Governance
+
+Persistent workflows validate:
+
+- Ruff lint/format;
+- Pyright strict typing;
+- unit regression;
+- PostgreSQL/pgvector migration and Alembic drift;
+- Redis/PostgreSQL integration regression;
+- frontend lint/typecheck/build;
+- Docker/Compose runtime and readiness;
+- backup/restore and load probes;
+- Python/Node dependency vulnerabilities;
+- repository secrets;
+- runtime container HIGH/CRITICAL fixed vulnerabilities.
+
+The default branch is `main`; feature/milestone work should remain scoped and be merged after validation.
 
 ## License
 
-No public/open-source license has been selected yet. Until a license is explicitly added, do not assume reuse or redistribution rights.
+No public/open-source license has been selected. Until a license is explicitly added, do not assume reuse or redistribution rights.
