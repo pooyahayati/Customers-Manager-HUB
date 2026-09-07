@@ -1,0 +1,60 @@
+name: M8 Blob Stage Temporary
+
+on:
+  push:
+    branches:
+      - feat/tool-runtime
+
+permissions:
+  contents: write
+
+jobs:
+  stage-blobs:
+    runs-on: ubuntu-latest
+    env:
+      APP_ENV: test
+      APP_SECRET_KEY: test-app-secret
+      JWT_SECRET_KEY: test-jwt-secret
+      ENCRYPTION_KEY: YWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYQ==
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: feat/tool-runtime
+      - uses: actions/setup-python@v5
+        with:
+          python-version-file: .python-version
+      - uses: astral-sh/setup-uv@v6
+      - name: Build validated files
+        run: |
+          uv lock
+          uv sync --frozen
+          uv run python .github/m8_apply_runtime.py
+          uv run python .github/m8_fix_stage.py
+          uv run ruff check apps/api/src apps/api/tests
+          uv run ruff format --check apps/api/src apps/api/tests
+          uv run pyright
+          uv run pytest apps/api/tests
+      - name: Upload git blobs without changing refs
+        shell: bash
+        run: |
+          set -euo pipefail
+          : > /tmp/blob-shas.txt
+          for path in \
+            pyproject.toml \
+            uv.lock \
+            apps/api/migrations/env.py \
+            apps/api/src/customers_manager_hub/agent_runtime.py \
+            apps/api/src/customers_manager_hub/ai_gateway.py \
+            apps/api/src/customers_manager_hub/main.py \
+            apps/api/src/customers_manager_hub/tool_runtime.py \
+            apps/api/src/customers_manager_hub/worker.py; do
+            encoded=$(base64 -w0 "$path")
+            sha=$(jq -n --arg content "$encoded" '{content:$content,encoding:"base64"}' | gh api --method POST "repos/${GITHUB_REPOSITORY}/git/blobs" --input - --jq .sha)
+            printf '%s %s\n' "$sha" "$path" >> /tmp/blob-shas.txt
+          done
+          cat /tmp/blob-shas.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: m8-blob-shas
+          path: /tmp/blob-shas.txt
