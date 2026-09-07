@@ -2,20 +2,25 @@ from datetime import UTC, datetime
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from customers_manager_hub.contacts import load_contact
-from customers_manager_hub.database import DbSession
+from customers_manager_hub.database import get_db_session
 from customers_manager_hub.memory_models import (
     CustomerMemoryItem,
     MemoryCategory,
     MemoryEvidenceKind,
     MemorySourceType,
 )
-from customers_manager_hub.memory_runtime import _candidate_dedupe_key, _normalize_value
+from customers_manager_hub.memory_runtime import (
+    MemoryRuntimeError,
+    _candidate_dedupe_key,
+    _normalize_value,
+)
 from customers_manager_hub.models import AuditEvent, TenantRole
 from customers_manager_hub.tenants import TenantContextDependency, require_tenant_role
 
@@ -23,6 +28,7 @@ router = APIRouter(
     prefix="/api/v1/tenants/{tenant_id}/contacts/{contact_id}/memories",
     tags=["customer-memory"],
 )
+DbSession = Annotated[AsyncSession, Depends(get_db_session)]
 WriteRoles = frozenset(
     {TenantRole.OWNER, TenantRole.ADMIN, TenantRole.SUPERVISOR, TenantRole.AGENT}
 )
@@ -90,7 +96,7 @@ def memory_response(item: CustomerMemoryItem) -> MemoryResponse:
 
 
 async def _load_memory(
-    db: DbSession,
+    db: AsyncSession,
     tenant_id: UUID,
     contact_id: UUID,
     memory_id: UUID,
@@ -150,8 +156,11 @@ async def create_customer_memory(
     now = datetime.now(UTC)
     try:
         value = _normalize_value(payload.category, payload.value)
-    except Exception as exc:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+    except MemoryRuntimeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=exc.code,
+        ) from exc
     if payload.expires_at is not None and payload.expires_at <= now:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -216,10 +225,10 @@ async def update_customer_memory(
         category = MemoryCategory(item.category)
         try:
             value = _normalize_value(category, payload.value)
-        except Exception as exc:
+        except MemoryRuntimeError as exc:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail=str(exc),
+                detail=exc.code,
             ) from exc
         item.value = value
         item.dedupe_key = _candidate_dedupe_key(category, value)
