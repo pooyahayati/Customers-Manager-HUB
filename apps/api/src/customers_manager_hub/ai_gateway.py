@@ -308,13 +308,12 @@ class AIGateway:
     ) -> ResultT:
         profile = await self._load_profile(tenant_id, task_type)
         last_error_code = "all_routes_failed"
-        last_error_retryable = False
+        any_retryable_failure = False
 
         for route in profile.routes:
             adapter = self._registry.get(route.provider)
             if adapter is None:
                 last_error_code = "provider_unavailable"
-                last_error_retryable = False
                 await self._record_trace(
                     tenant_id=tenant_id,
                     profile=profile,
@@ -329,7 +328,6 @@ class AIGateway:
                 continue
             if not adapter.supports(operation):
                 last_error_code = "provider_capability_unavailable"
-                last_error_retryable = False
                 await self._record_trace(
                     tenant_id=tenant_id,
                     profile=profile,
@@ -355,7 +353,7 @@ class AIGateway:
                 except AIProviderError as exc:
                     latency_ms = max(0, round((perf_counter() - started) * 1000))
                     last_error_code = exc.code
-                    last_error_retryable = exc.retryable
+                    any_retryable_failure = any_retryable_failure or exc.retryable
                     await self._record_trace(
                         tenant_id=tenant_id,
                         profile=profile,
@@ -386,7 +384,7 @@ class AIGateway:
                 )
                 return result
 
-        raise AIRoutingError(last_error_code, retryable=last_error_retryable)
+        raise AIRoutingError(last_error_code, retryable=any_retryable_failure)
 
     @staticmethod
     async def _invoke_with_timeout(

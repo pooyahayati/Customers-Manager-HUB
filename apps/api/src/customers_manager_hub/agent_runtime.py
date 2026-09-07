@@ -153,18 +153,22 @@ async def build_conversation_input(
             continue
         text = text[:_CONTEXT_SINGLE_MESSAGE_LIMIT]
         snippet = f"{_history_label(message)}: {text}"
-        remaining = history_char_budget - used
+        separator_cost = 1 if selected_latest_first else 0
+        remaining = history_char_budget - used - separator_cost
         if remaining <= 0:
             break
         if len(snippet) > remaining:
             if not selected_latest_first:
                 selected_latest_first.append(snippet[:remaining])
+                used += len(selected_latest_first[-1])
             break
         selected_latest_first.append(snippet)
-        used += len(snippet)
+        used += separator_cost + len(snippet)
 
     history = list(reversed(selected_latest_first))
-    history_text = "\n".join(history) if history else "(no prior text messages)"
+    history_text = (
+        "\n".join(history) if history else "(no prior text messages)"[:history_char_budget]
+    )
     return (
         "Conversation history (oldest to newest):\n"
         f"{history_text}\n\n"

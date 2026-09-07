@@ -783,6 +783,24 @@ def test_long_generation_renews_lease_and_context_budget_is_enforced() -> None:
         history_payload = history_section.split("\n", 1)[1]
         assert len(history_payload) <= 10
         assert current_section == "CUSTOMER: Please help with my order"
+
+        async def empty_budget_context() -> str:
+            engine, session_factory = create_database(TEST_SETTINGS)
+            try:
+                return await build_conversation_input(
+                    session_factory,
+                    tenant_id=tenant_id,
+                    conversation_id=conversation_id,
+                    current_message_id=inbound_message_id,
+                    current_text="Please help with my order",
+                    history_char_budget=0,
+                )
+            finally:
+                await engine.dispose()
+
+        zero_budget_input = asyncio.run(empty_budget_context())
+        zero_history = zero_budget_input.split("\n\nCurrent customer message:\n", 1)[0]
+        assert zero_history == "Conversation history (oldest to newest):\n"
     finally:
         close_client(client)
 
