@@ -75,8 +75,14 @@ def test_client_ip_trusts_forwarding_only_from_configured_proxy() -> None:
     settings = Settings(trusted_proxy_cidrs="10.0.0.0/8", _env_file=None)  # pyright: ignore[reportCallIssue]
     forwarded = ((b"x-forwarded-for", b"198.51.100.25, 10.0.0.1"),)
 
-    assert client_ip(_request("/", client="10.1.2.3", headers=forwarded), settings) == "198.51.100.25"
-    assert client_ip(_request("/", client="192.0.2.50", headers=forwarded), settings) == "192.0.2.50"
+    assert (
+        client_ip(_request("/", client="10.1.2.3", headers=forwarded), settings)
+        == "198.51.100.25"
+    )
+    assert (
+        client_ip(_request("/", client="192.0.2.50", headers=forwarded), settings)
+        == "192.0.2.50"
+    )
 
 
 def test_rate_limit_rule_matches_only_supported_public_ingress() -> None:
