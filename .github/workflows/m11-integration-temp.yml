@@ -80,6 +80,8 @@ jobs:
           API_PORT: "18000"
           WEB_PORT: "13000"
           S3_PORT: "18333"
+          DATABASE_URL: postgresql+psycopg://cmh:change-me@postgres:5432/customers_manager_hub
+          REDIS_URL: redis://redis:6379/0
         run: |
           docker compose up -d --build api worker object-storage
           for i in {1..30}; do
