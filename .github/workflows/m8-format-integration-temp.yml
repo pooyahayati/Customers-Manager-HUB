@@ -1,0 +1,33 @@
+name: M8 Format Integration Temporary
+
+on:
+  push:
+    branches:
+      - feat/tool-runtime
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    if: github.event.head_commit.message != 'style: format M8 integration tests'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: feat/tool-runtime
+      - uses: actions/setup-python@v5
+        with:
+          python-version-file: .python-version
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --frozen
+      - name: Format M8 integration test
+        run: |
+          uv run ruff format apps/api/tests/test_tool_integration.py
+          if ! git diff --quiet -- apps/api/tests/test_tool_integration.py; then
+            git config user.name github-actions[bot]
+            git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+            git add apps/api/tests/test_tool_integration.py
+            git commit -m 'style: format M8 integration tests'
+            git push origin HEAD:feat/tool-runtime
+          fi
