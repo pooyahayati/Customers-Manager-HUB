@@ -1,0 +1,64 @@
+name: M8 Integration Temporary
+
+on:
+  push:
+    branches:
+      - feat/tool-runtime
+
+permissions:
+  contents: read
+
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: cmh
+          POSTGRES_PASSWORD: change-me
+          POSTGRES_DB: customers_manager_hub
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U cmh -d customers_manager_hub"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+      redis:
+        image: redis:8-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      APP_ENV: test
+      APP_SECRET_KEY: test-app-secret
+      JWT_SECRET_KEY: test-jwt-secret
+      ENCRYPTION_KEY: YWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYQ==
+      DATABASE_URL: postgresql+psycopg://cmh:change-me@localhost:5432/customers_manager_hub
+      REDIS_URL: redis://localhost:6379/0
+      RUN_DB_INTEGRATION: "1"
+      TELEGRAM_WEBHOOK_BASE_URL: https://agents.example.test
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: feat/tool-runtime
+      - uses: actions/setup-python@v5
+        with:
+          python-version-file: .python-version
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --frozen
+      - name: Apply migrations
+        run: uv run alembic upgrade head
+      - name: Verify Alembic model drift
+        run: uv run alembic check
+      - name: Run M8 database and agent integration
+        run: >-
+          uv run pytest
+          apps/api/tests/test_tool_integration.py
+          apps/api/tests/test_agent_prompt_integration.py
+          apps/api/tests/test_ai_gateway_integration.py
