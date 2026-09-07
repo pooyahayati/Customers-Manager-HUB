@@ -32,6 +32,7 @@ jobs:
           uv lock
           uv sync --frozen
           uv run python .github/m8_apply_runtime.py
+          uv run python .github/m8_fix_stage.py
           uv run ruff check --fix apps/api/src apps/api/tests
           uv run ruff format apps/api/src apps/api/tests
       - name: Static and unit regression
@@ -49,6 +50,7 @@ jobs:
           cp apps/api/src/customers_manager_hub/agent_runtime.py /tmp/m8-runtime/apps/api/src/customers_manager_hub/
           cp apps/api/src/customers_manager_hub/ai_gateway.py /tmp/m8-runtime/apps/api/src/customers_manager_hub/
           cp apps/api/src/customers_manager_hub/main.py /tmp/m8-runtime/apps/api/src/customers_manager_hub/
+          cp apps/api/src/customers_manager_hub/tool_runtime.py /tmp/m8-runtime/apps/api/src/customers_manager_hub/
           cp apps/api/src/customers_manager_hub/worker.py /tmp/m8-runtime/apps/api/src/customers_manager_hub/
       - uses: actions/upload-artifact@v4
         with:
