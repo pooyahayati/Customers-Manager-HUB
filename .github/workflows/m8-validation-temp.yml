@@ -15,7 +15,7 @@ jobs:
       APP_ENV: test
       APP_SECRET_KEY: test-app-secret
       JWT_SECRET_KEY: test-jwt-secret
-      ENCRYPTION_KEY: YWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYQ==
+      ENCRYPTION_KEY: YWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWE=
     steps:
       - uses: actions/checkout@v5
         with:
