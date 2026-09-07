@@ -1,4 +1,5 @@
 import asyncio
+import json
 from typing import cast
 from uuid import uuid4
 
@@ -142,7 +143,9 @@ def test_rest_adapter_injects_server_credential_and_idempotency_header() -> None
         assert request.url.host == "api.example.test"
         assert request.headers["authorization"] == f"Bearer {secret}"
         assert request.headers["idempotency-key"] == "execution-token-123"
-        body = cast(dict[str, object], request.json())
+        parsed: object = json.loads(request.content)
+        assert isinstance(parsed, dict)
+        body = cast(dict[str, object], parsed)
         assert body == {"sku": "A-1", "quantity": 2}
         return httpx2.Response(
             200,
