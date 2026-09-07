@@ -17,16 +17,15 @@ concurrency:
 jobs:
   publish:
     name: Publish v0.1.0
-    if: github.event.head_commit.message == 'chore: trigger v0.1.0 publication'
     runs-on: ubuntu-24.04
     env:
-      TARGET_SHA: 17ee67515cc404cb4861c9f7984026da65239a17
-      RELEASE_TAG: v0.1.0
-      VERSION: 0.1.0
+      TARGET_SHA: "17ee67515cc404cb4861c9f7984026da65239a17"
+      RELEASE_TAG: "v0.1.0"
+      VERSION: "0.1.0"
     steps:
       - uses: actions/checkout@v5
         with:
-          ref: 17ee67515cc404cb4861c9f7984026da65239a17
+          ref: "17ee67515cc404cb4861c9f7984026da65239a17"
           fetch-depth: 0
 
       - name: Verify immutable release target and green gates
