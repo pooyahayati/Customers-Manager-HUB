@@ -115,7 +115,7 @@ class ChannelJobQueue:
         raw = await self._redis.hget(CHANNEL_JOB_ATTEMPT_HASH, stream_id)
         try:
             return max(int(cast(str | int | None, raw) or 1), 1)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             await self._redis.hset(CHANNEL_JOB_ATTEMPT_HASH, stream_id, 1)
             return 1
 
