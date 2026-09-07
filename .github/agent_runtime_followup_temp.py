@@ -91,7 +91,7 @@ ai_test = Path("apps/api/tests/test_ai_gateway_integration.py")
 content = ai_test.read_text()
 content = content.replace(
     '''    AIGateway,\n    AIProviderRegistry,\n''',
-    '''    AIGateway,\n    AIRoutingError,\n    AIProviderRegistry,\n''',
+    '''    AIGateway,\n    AIProviderRegistry,\n    AIRoutingError,\n''',
     1,
 )
 new_ai_test = '''
