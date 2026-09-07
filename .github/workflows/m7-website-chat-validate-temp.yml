@@ -58,7 +58,9 @@ jobs:
         run: uv sync --frozen
 
       - name: Apply staged Milestone 7 patch
-        run: uv run python .github/m7_website_chat_apply.py
+        run: |
+          uv run python .github/m7_website_chat_apply.py
+          uv run python .github/m7_website_chat_followup.py
 
       - name: Format and lint
         run: |
