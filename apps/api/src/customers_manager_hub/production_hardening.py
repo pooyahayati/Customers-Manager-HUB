@@ -13,6 +13,7 @@ from fastapi.responses import JSONResponse
 from redis.asyncio import Redis
 from redis.exceptions import RedisError
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
+from starlette.types import ASGIApp
 
 from customers_manager_hub.config import Settings
 
@@ -58,7 +59,9 @@ def normalize_request_id(value: str | None) -> str:
     return secrets.token_hex(16)
 
 
-def _trusted_proxy_networks(settings: Settings) -> tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, ...]:
+def _trusted_proxy_networks(
+    settings: Settings,
+) -> tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, ...]:
     networks: list[ipaddress.IPv4Network | ipaddress.IPv6Network] = []
     for item in settings.trusted_proxy_cidrs.split(","):
         candidate = item.strip()
@@ -117,7 +120,10 @@ class RedisRateLimiter:
             return None
         result = cast(list[object], raw)
         if len(result) != 2 or not all(isinstance(item, int) for item in result):
-            logger.warning("rate limiter returned invalid response", extra={"rate_limit_rule": rule.name})
+            logger.warning(
+                "rate limiter returned invalid response",
+                extra={"rate_limit_rule": rule.name},
+            )
             return None
         count = cast(int, result[0])
         ttl = max(cast(int, result[1]), 1)
@@ -132,12 +138,12 @@ class RedisRateLimiter:
 class ProductionHardeningMiddleware(BaseHTTPMiddleware):
     def __init__(
         self,
-        app: object,
+        app: ASGIApp,
         *,
         settings: Settings,
         rate_limiter: RedisRateLimiter,
     ) -> None:
-        super().__init__(app)  # type: ignore[arg-type]
+        super().__init__(app)
         self._settings = settings
         self._rate_limiter = rate_limiter
 
@@ -160,7 +166,6 @@ class ProductionHardeningMiddleware(BaseHTTPMiddleware):
                         status_code=status.HTTP_429_TOO_MANY_REQUESTS,
                         content={"detail": "Rate limit exceeded"},
                     )
-                if response is not None:
                     response.headers["Retry-After"] = str(decision.retry_after)
             if response is None:
                 response = await call_next(request)
