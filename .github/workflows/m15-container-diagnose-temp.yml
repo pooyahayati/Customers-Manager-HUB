@@ -1,0 +1,63 @@
+name: M15 Container Diagnose Temporary
+
+on:
+  push:
+    branches: [feat/m15-security-production-hardening]
+    paths:
+      - .github/workflows/m15-container-diagnose-temp.yml
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-24.04
+    env:
+      APP_ENV: development
+      ENCRYPTION_KEY: dmFsaWRfdGVzdF9rZXlfMzJfYnl0ZXNfbG9uZ19fX18=
+      TELEGRAM_WEBHOOK_BASE_URL: https://channels.example.test
+    steps:
+      - uses: actions/checkout@v5
+      - name: Build and materialize API runtime
+        run: |
+          docker compose -f compose.yaml build api
+          docker compose -f compose.yaml create --no-build api
+      - name: Inspect runtime filesystem package evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          container_id=$(docker compose -f compose.yaml ps -q --all api | head -n 1)
+          test -n "$container_id"
+          rootfs=/tmp/cmh-api-rootfs
+          mkdir -p "$rootfs"
+          docker export "$container_id" | tar --no-same-owner -xf - -C "$rootfs"
+
+          echo '=== SBOM / attestation-like files ==='
+          find "$rootfs" -type f \( -iname '*sbom*' -o -iname '*spdx*' -o -iname '*cyclonedx*' -o -iname '*attestation*' \) -print | head -n 200 || true
+
+          echo '=== msgpack evidence paths ==='
+          grep -RIl --binary-files=without-match -m 1 'msgpack' "$rootfs/app" "$rootfs/usr/local/lib/python3.14" 2>/dev/null | head -n 200 || true
+
+          echo '=== setuptools evidence paths ==='
+          grep -RIl --binary-files=without-match -m 1 'setuptools' "$rootfs/app" "$rootfs/usr/local/lib/python3.14" 2>/dev/null | head -n 200 || true
+
+          echo '=== pip vendor manifest ==='
+          find "$rootfs/usr/local/lib/python3.14/site-packages/pip" -maxdepth 4 -type f \( -name 'vendor.txt' -o -name '*vendor*' \) -print -exec sed -n '1,240p' {} \; 2>/dev/null || true
+
+          echo '=== Python package metadata names/versions outside app venv ==='
+          find "$rootfs/usr/local/lib/python3.14/site-packages" -maxdepth 2 -type f -name METADATA -print -exec sh -c "grep -E '^(Name|Version):' \"$1\" | head -n 2" _ {} \; 2>/dev/null || true
+
+          echo '=== Trivy debug source hints ==='
+          docker run --rm \
+            -v "$rootfs:/scan:ro" \
+            aquasec/trivy:0.74.0 \
+            rootfs /scan \
+            --scanners vuln \
+            --severity HIGH,CRITICAL \
+            --ignore-unfixed \
+            --format json \
+            --output /tmp/ignored.json \
+            --debug || true
+      - name: Cleanup
+        if: always()
+        run: docker compose -f compose.yaml down -v --remove-orphans
