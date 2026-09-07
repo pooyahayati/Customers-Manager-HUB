@@ -31,7 +31,7 @@ jobs:
       - name: Validate operations scripts
         run: |
           python -m py_compile scripts/load_http.py
-          bash -n scripts/backup_postgres.sh scripts/restore_postgres.sh
+          bash -n scripts/backup_postgres.sh scripts/restore_postgres.sh scripts/validate_commercial_mvp.sh
       - name: Unit regression
         env:
           RUN_DB_INTEGRATION: "0"
@@ -101,8 +101,8 @@ jobs:
         run: |
           uv run alembic upgrade head
           uv run alembic check
-      - name: Integration regression
-        run: uv run pytest apps/api/tests/test_*_integration.py
+      - name: Commercial MVP integration regression
+        run: bash scripts/validate_commercial_mvp.sh --ci
 
   docker:
     name: Docker and Compose
