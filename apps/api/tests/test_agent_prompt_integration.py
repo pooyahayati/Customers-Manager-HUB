@@ -475,6 +475,25 @@ def test_prompt_lifecycle_rbac_and_tenant_isolation() -> None:
             json={"description": "Admin can update"},
         )
         assert admin_update.status_code == 200
+        assert admin_update.json()["description"] == "Admin can update"
+
+        cleared_description = client.patch(
+            f"/api/v1/tenants/{tenant_a}/agents/{agent_id}",
+            json={"description": None},
+        )
+        assert cleared_description.status_code == 200
+        assert cleared_description.json()["description"] is None
+
+        empty_patch = client.patch(
+            f"/api/v1/tenants/{tenant_a}/agents/{agent_id}",
+            json={},
+        )
+        assert empty_patch.status_code == 422
+        null_name = client.patch(
+            f"/api/v1/tenants/{tenant_a}/agents/{agent_id}",
+            json={"name": None},
+        )
+        assert null_name.status_code == 422
 
         for role, email in (
             (TenantRole.SUPERVISOR, "supervisor-a@example.com"),

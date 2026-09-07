@@ -116,14 +116,12 @@ class AgentUpdate(BaseModel):
         return normalized or None
 
     @model_validator(mode="after")
-    def require_change(self) -> Self:
-        if (
-            self.name is None
-            and self.prompt_id is None
-            and self.description is None
-            and self.is_active is None
-        ):
+    def validate_patch(self) -> Self:
+        if not self.model_fields_set:
             raise ValueError("At least one Agent setting must be supplied")
+        for field_name in ("name", "prompt_id", "is_active"):
+            if field_name in self.model_fields_set and getattr(self, field_name) is None:
+                raise ValueError(f"{field_name} must not be null")
         return self
 
 
@@ -609,7 +607,7 @@ async def update_agent(
         prompt = await load_prompt(db, context.tenant.id, payload.prompt_id)
         agent.prompt_id = prompt.id
         changed_fields.append("prompt_id")
-    if payload.description is not None and payload.description != agent.description:
+    if "description" in payload.model_fields_set and payload.description != agent.description:
         agent.description = payload.description
         changed_fields.append("description")
     if payload.is_active is not None and payload.is_active != agent.is_active:
