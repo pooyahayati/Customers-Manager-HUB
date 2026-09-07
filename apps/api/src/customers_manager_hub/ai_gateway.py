@@ -443,12 +443,14 @@ class MockAIProviderAdapter:
         failures_before_success: int = 0,
         generation_text: str = "mock response",
         structured_payload: dict[str, object] | None = None,
+        structured_payloads: tuple[dict[str, object], ...] | None = None,
         transcription_text: str = "mock transcript",
     ) -> None:
         self._key = key
         self._remaining_failures = failures_before_success
         self._generation_text = generation_text
         self._structured_payload = structured_payload
+        self._structured_payloads = list(structured_payloads or ())
         self._transcription_text = transcription_text
         self.calls = 0
 
@@ -483,7 +485,10 @@ class MockAIProviderAdapter:
         structured = None
         text = self._generation_text
         if request.json_schema is not None:
-            structured = self._structured_payload or {"value": "mock"}
+            if self._structured_payloads:
+                structured = self._structured_payloads.pop(0)
+            else:
+                structured = self._structured_payload or {"value": "mock"}
             text = json.dumps(structured, separators=(",", ":"))
         return GenerationResult(
             provider=self.key,
