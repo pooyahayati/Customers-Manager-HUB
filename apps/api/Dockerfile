@@ -22,11 +22,18 @@ ENV PATH="/app/.venv/bin:${PATH}" \
 
 WORKDIR /app
 
-# The application image is immutable at runtime. Remove pip/ensurepip and their
-# vendored dependency tree from the final stage to reduce attack surface.
+# The application image is immutable at runtime. Packaging/bootstrap tooling is
+# not needed after the locked virtualenv is copied in, so remove it and its
+# vendored/metadata artifacts from the final stage to reduce attack surface.
 RUN rm -rf \
         /usr/local/lib/python3.14/site-packages/pip \
         /usr/local/lib/python3.14/site-packages/pip-*.dist-info \
+        /usr/local/lib/python3.14/site-packages/setuptools \
+        /usr/local/lib/python3.14/site-packages/setuptools-*.dist-info \
+        /usr/local/lib/python3.14/site-packages/_distutils_hack \
+        /usr/local/lib/python3.14/site-packages/distutils-precedence.pth \
+        /usr/local/lib/python3.14/site-packages/msgpack \
+        /usr/local/lib/python3.14/site-packages/msgpack-*.dist-info \
         /usr/local/lib/python3.14/ensurepip \
     && rm -f /usr/local/bin/pip /usr/local/bin/pip3 /usr/local/bin/pip3.14 \
     && groupadd --gid 10001 app \
