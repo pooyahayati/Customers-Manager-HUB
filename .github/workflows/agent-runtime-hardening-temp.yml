@@ -114,7 +114,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git rm .github/agent_runtime_hardening_temp.py .github/workflows/agent-runtime-hardening-temp.yml
-          git add apps/api/tests/test_agent_prompt_integration.py docs/adr/ADR-012-versioned-prompts-and-durable-agent-runs.md specs/MILESTONE-6-AGENT-PROMPT-RUNTIME.md
+          git add apps/api/src/customers_manager_hub/agent_runtime.py apps/api/tests/test_agent_prompt_integration.py docs/adr/ADR-012-versioned-prompts-and-durable-agent-runs.md specs/MILESTONE-6-AGENT-PROMPT-RUNTIME.md
           git commit -m "test: validate renewable agent run leases"
           git push origin "HEAD:${{ github.head_ref }}"
 
