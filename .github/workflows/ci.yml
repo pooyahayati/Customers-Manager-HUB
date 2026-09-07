@@ -152,6 +152,8 @@ jobs:
             fi
             sleep 2
           done
+      - name: Deployment smoke
+        run: bash scripts/smoke_deployment.sh http://127.0.0.1:8000 http://127.0.0.1:3000
       - name: Load-probe smoke
         run: python scripts/load_http.py http://127.0.0.1:8000/health --requests 20 --concurrency 5
       - name: Verify non-root application runtime
