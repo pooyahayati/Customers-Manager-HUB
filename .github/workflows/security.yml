@@ -64,17 +64,19 @@ jobs:
       - uses: actions/checkout@v5
       - name: Build supported application images
         run: docker compose -f compose.yaml build api web postgres
+      - name: Materialize compose containers
+        run: docker compose -f compose.yaml create --no-build api web postgres
       - name: Scan high and critical fixed vulnerabilities
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p /tmp/cmh-trivy
           for service in api web postgres; do
-            image_name=$(docker compose -f compose.yaml config --images "$service")
-            test -n "$image_name"
-            docker image inspect "$image_name" >/dev/null
+            image_id=$(docker compose -f compose.yaml images -q "$service" | head -n 1)
+            test -n "$image_id"
+            docker image inspect "$image_id" >/dev/null
             archive="/tmp/cmh-trivy/${service}.tar"
-            docker save --output "$archive" "$image_name"
+            docker save --output "$archive" "$image_id"
             docker run --rm \
               -v /tmp/cmh-trivy:/scan:ro \
               aquasec/trivy:0.74.0 \
@@ -85,3 +87,6 @@ jobs:
               --exit-code 1
             rm -f "$archive"
           done
+      - name: Cleanup
+        if: always()
+        run: docker compose -f compose.yaml down -v --remove-orphans
