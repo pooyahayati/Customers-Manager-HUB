@@ -1,0 +1,12 @@
+services:
+  api:
+    image: ${CMH_API_IMAGE:?CMH_API_IMAGE is required}
+
+  worker:
+    image: ${CMH_API_IMAGE:?CMH_API_IMAGE is required}
+
+  web:
+    image: ${CMH_WEB_IMAGE:?CMH_WEB_IMAGE is required}
+
+  postgres:
+    image: ${CMH_POSTGRES_IMAGE:?CMH_POSTGRES_IMAGE is required}
