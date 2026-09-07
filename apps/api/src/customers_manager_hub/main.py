@@ -9,6 +9,7 @@ from customers_manager_hub.agents import router as agents_router
 from customers_manager_hub.ai_gateway import AIGateway
 from customers_manager_hub.ai_profiles import router as ai_profiles_router
 from customers_manager_hub.ai_providers import build_live_provider_registry
+from customers_manager_hub.analytics import router as analytics_router
 from customers_manager_hub.auth import router as auth_router
 from customers_manager_hub.channel_gateway import ChannelRegistry
 from customers_manager_hub.channel_queue import ChannelJobQueue, create_channel_redis
@@ -81,6 +82,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.include_router(agents_router)
     application.include_router(tools_router)
     application.include_router(policies_router)
+    application.include_router(analytics_router)
     application.include_router(knowledge_router)
     application.include_router(website_admin_router)
     application.include_router(channels_router)
