@@ -1,5 +1,6 @@
 import asyncio
 import os
+from contextlib import suppress
 from typing import cast
 from uuid import uuid4
 
@@ -93,10 +94,8 @@ def test_channel_retry_budget_moves_exhausted_and_malformed_jobs_to_dlq() -> Non
                 CHANNEL_JOB_DEAD_LETTER_STREAM,
                 CHANNEL_JOB_ATTEMPT_HASH,
             )
-            try:
+            with suppress(Exception):
                 await redis.xgroup_destroy(CHANNEL_JOB_STREAM, CHANNEL_JOB_GROUP)
-            except Exception:
-                pass
             await redis.aclose()
 
     asyncio.run(scenario())
@@ -138,10 +137,8 @@ def test_knowledge_retry_budget_moves_exhausted_job_to_dlq() -> None:
                 KNOWLEDGE_JOB_DEAD_LETTER_STREAM,
                 KNOWLEDGE_JOB_ATTEMPT_HASH,
             )
-            try:
+            with suppress(Exception):
                 await redis.xgroup_destroy(KNOWLEDGE_JOB_STREAM, KNOWLEDGE_JOB_GROUP)
-            except Exception:
-                pass
             await redis.aclose()
 
     asyncio.run(scenario())
