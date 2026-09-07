@@ -1,0 +1,150 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release tag, for example v0.1.0"
+        required: true
+        default: "v0.1.0"
+
+permissions:
+  contents: write
+  packages: write
+  actions: read
+
+concurrency:
+  group: release-${{ github.ref }}-${{ inputs.version || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish release
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Resolve and validate release version
+        id: version
+        shell: bash
+        env:
+          REQUESTED_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_EVENT_NAME}" = "push" ]; then
+            release_tag="${GITHUB_REF_NAME}"
+          else
+            release_tag="${REQUESTED_VERSION}"
+          fi
+          project_version=$(python - <<'PY'
+          import tomllib
+          from pathlib import Path
+
+          data = tomllib.loads(Path("pyproject.toml").read_text())
+          print(data["project"]["version"])
+          PY
+          )
+          if [ "${release_tag}" != "v${project_version}" ]; then
+            echo "Release tag ${release_tag} does not match project version v${project_version}" >&2
+            exit 1
+          fi
+          git fetch origin main --depth=1
+          if [ "$(git rev-parse HEAD)" != "$(git rev-parse origin/main)" ]; then
+            echo "Release must target the current main commit" >&2
+            exit 1
+          fi
+          echo "tag=${release_tag}" >> "${GITHUB_OUTPUT}"
+          echo "version=${project_version}" >> "${GITHUB_OUTPUT}"
+
+      - name: Require green main CI and Security
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          ci_count=$(gh api \
+            "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?branch=main&event=push&status=success&per_page=20" \
+            --jq "[.workflow_runs[] | select(.head_sha == \"${GITHUB_SHA}\")] | length")
+          security_count=$(gh api \
+            "repos/${GITHUB_REPOSITORY}/actions/workflows/security.yml/runs?branch=main&event=push&status=success&per_page=20" \
+            --jq "[.workflow_runs[] | select(.head_sha == \"${GITHUB_SHA}\")] | length")
+          test "${ci_count}" -ge 1
+          test "${security_count}" -ge 1
+
+      - name: Log in to GHCR
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "${{ github.token }}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
+
+      - name: Build and publish versioned images
+        id: images
+        shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          owner=$(printf '%s' "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')
+          prefix="ghcr.io/${owner}/customers-manager-hub"
+          api_image="${prefix}-api"
+          web_image="${prefix}-web"
+          postgres_image="${prefix}-postgres"
+          source="https://github.com/${GITHUB_REPOSITORY}"
+
+          docker build \
+            --label "org.opencontainers.image.source=${source}" \
+            --label "org.opencontainers.image.revision=${GITHUB_SHA}" \
+            --label "org.opencontainers.image.version=${VERSION}" \
+            -f apps/api/Dockerfile \
+            -t "${api_image}:${VERSION}" \
+            .
+          docker build \
+            --label "org.opencontainers.image.source=${source}" \
+            --label "org.opencontainers.image.revision=${GITHUB_SHA}" \
+            --label "org.opencontainers.image.version=${VERSION}" \
+            -f apps/web/Dockerfile \
+            -t "${web_image}:${VERSION}" \
+            .
+          docker build \
+            --label "org.opencontainers.image.source=${source}" \
+            --label "org.opencontainers.image.revision=${GITHUB_SHA}" \
+            --label "org.opencontainers.image.version=${VERSION}" \
+            --build-arg POSTGRES_VERSION=18.6-bookworm \
+            --build-arg PGVECTOR_COMMIT=8ee86c96f0fd72390f890aa8a336fda6d3ab4c6c \
+            -f infra/docker/postgres/Dockerfile \
+            -t "${postgres_image}:${VERSION}" \
+            .
+
+          docker push "${api_image}:${VERSION}"
+          docker push "${web_image}:${VERSION}"
+          docker push "${postgres_image}:${VERSION}"
+
+          cat > release-manifest.txt <<EOF
+          source_sha=${GITHUB_SHA}
+          api_image=${api_image}:${VERSION}
+          worker_image=${api_image}:${VERSION}
+          web_image=${web_image}:${VERSION}
+          postgres_image=${postgres_image}:${VERSION}
+          EOF
+
+      - name: Create GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
+            echo "Release ${RELEASE_TAG} already exists" >&2
+            exit 1
+          fi
+          gh release create "${RELEASE_TAG}" \
+            --target "${GITHUB_SHA}" \
+            --title "Customers Manager HUB ${RELEASE_TAG}" \
+            --generate-notes \
+            release-manifest.txt
