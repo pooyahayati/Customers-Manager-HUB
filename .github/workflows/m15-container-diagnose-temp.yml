@@ -21,7 +21,7 @@ jobs:
       - name: Build and materialize API runtime
         run: |
           docker compose -f compose.yaml build api
-          docker compose -f compose.yaml create --no-build api
+          docker compose -f compose.yaml create --no-build --no-deps api
       - name: Inspect runtime filesystem package evidence
         shell: bash
         run: |
@@ -55,8 +55,6 @@ jobs:
             --scanners vuln \
             --severity HIGH,CRITICAL \
             --ignore-unfixed \
-            --format json \
-            --output /tmp/ignored.json \
             --debug || true
       - name: Cleanup
         if: always()
