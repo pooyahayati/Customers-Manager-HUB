@@ -312,7 +312,9 @@ def tool_payload(*, risk_level: str = "low") -> dict[str, object]:
 
 
 def create_tool(client: TestClient, tenant_id: UUID, *, risk_level: str = "low") -> UUID:
-    response = client.post(f"/api/v1/tenants/{tenant_id}/tools", json=tool_payload(risk_level=risk_level))
+    response = client.post(
+        f"/api/v1/tenants/{tenant_id}/tools", json=tool_payload(risk_level=risk_level)
+    )
     assert response.status_code == 201
     return UUID(response.json()["id"])
 
@@ -441,9 +443,7 @@ def test_tool_admin_api_rbac_tenant_secret_and_approval_foundation() -> None:
         login(client, "owner-b@example.com", "owner tools password b")
         cross_tool = client.get(f"/api/v1/tenants/{tenant_b}/tools/{tool_id}")
         assert cross_tool.status_code == 404
-        cross_execution = client.get(
-            f"/api/v1/tenants/{tenant_b}/tool-executions/{approved_id}"
-        )
+        cross_execution = client.get(f"/api/v1/tenants/{tenant_b}/tool-executions/{approved_id}")
         assert cross_execution.status_code == 404
 
         with Session(SYNC_ENGINE) as db:
@@ -580,9 +580,7 @@ def test_agent_tool_loop_executes_authorized_tool_once_without_secret_exposure()
             json={"auth_type": "bearer", "secret": business_secret},
         )
         assert credential.status_code == 200
-        permission = client.put(
-            f"/api/v1/tenants/{tenant_id}/agents/{agent_id}/tools/{tool_id}"
-        )
+        permission = client.put(f"/api/v1/tenants/{tenant_id}/agents/{agent_id}/tools/{tool_id}")
         assert permission.status_code == 200
 
         webhook = post_webhook(client, channel_id, stored_webhook_secret(channel_id))
@@ -644,7 +642,9 @@ def test_agent_tool_loop_executes_authorized_tool_once_without_secret_exposure()
         with Session(SYNC_ENGINE) as db:
             event = db.get(ChannelInboundEvent, event_id)
             assert event is not None
-            run_row = db.scalar(select(AgentRun).where(AgentRun.inbound_message_id == event.message_id))
+            run_row = db.scalar(
+                select(AgentRun).where(AgentRun.inbound_message_id == event.message_id)
+            )
             assert run_row is not None
             executions = list(
                 db.scalars(
@@ -663,7 +663,9 @@ def test_agent_tool_loop_executes_authorized_tool_once_without_secret_exposure()
                     )
                 ).all()
             )
-            assert any(message.text == "A-1 is in stock with 7 units available." for message in outbound)
+            assert any(
+                message.text == "A-1 is in stock with 7 units available." for message in outbound
+            )
 
         async def unauthorized() -> None:
             engine, session_factory = create_database(TEST_SETTINGS)
