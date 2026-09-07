@@ -193,7 +193,9 @@ class Settings(BaseSettings):
                 "cmh-dev-secret",
                 "change-me",
             }:
-                raise ValueError("Staging/production S3 credentials must not use development defaults")
+                raise ValueError(
+                    "Staging/production S3 credentials must not use development defaults"
+                )
         return self
 
     @property
