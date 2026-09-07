@@ -34,6 +34,10 @@ jobs:
           exec(textwrap.dedent(block), {})
           PY
       - run: uv sync --frozen
+      - name: Normalize staged source
+        run: |
+          uv run ruff check --fix apps/api/src apps/api/tests apps/api/migrations
+          uv run ruff format apps/api/src apps/api/tests apps/api/migrations
       - name: Start PostgreSQL and Redis
         run: |
           docker compose up -d --build postgres redis
@@ -88,6 +92,21 @@ jobs:
           test "$(docker inspect --format='{{.Config.User}}' $(docker compose ps -q api))" != "root"
           test "$(docker inspect --format='{{.Config.User}}' $(docker compose ps -q worker))" != "root"
           test "$(docker inspect --format='{{.State.Status}}' $(docker compose ps -q worker))" = "running"
+      - name: Upload validated M11 source
+        uses: actions/upload-artifact@v5
+        with:
+          name: m11-final-source
+          path: |
+            apps/api/migrations/env.py
+            apps/api/migrations/versions/0009_human_handoff.py
+            apps/api/src/customers_manager_hub/agent_models.py
+            apps/api/src/customers_manager_hub/agent_runtime.py
+            apps/api/src/customers_manager_hub/handoff.py
+            apps/api/src/customers_manager_hub/handoff_models.py
+            apps/api/src/customers_manager_hub/handoff_runtime.py
+            apps/api/src/customers_manager_hub/main.py
+            apps/api/src/customers_manager_hub/worker.py
+            apps/api/tests/test_handoff_integration.py
       - name: Diagnostics
         if: failure()
         run: |
