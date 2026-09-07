@@ -3,6 +3,7 @@ import zipfile
 from dataclasses import dataclass
 from datetime import date, datetime, time
 from io import BytesIO
+from pathlib import PurePosixPath
 from typing import cast
 
 from openpyxl import load_workbook
@@ -15,12 +16,17 @@ MAX_PDF_PAGES = 500
 MAX_EXTRACTED_CHARACTERS = 2_000_000
 MAX_XLSX_ZIP_ENTRIES = 10_000
 MAX_XLSX_EXPANDED_BYTES = 100 * 1024 * 1024
+MAX_XLSX_ENTRY_BYTES = 25 * 1024 * 1024
+MAX_XLSX_COMPRESSION_RATIO = 200
 MAX_SOURCE_CHUNKS = 512
 CHUNK_MAX_CHARACTERS = 1_200
 CHUNK_OVERLAP_CHARACTERS = 150
 _XLSX_UNIT_TARGET_CHARACTERS = 4_800
 _WHITESPACE_RUN = re.compile(r"[ \t\f\v]+")
 _EXCESS_NEWLINES = re.compile(r"\n{3,}")
+_ZIP_SIGNATURES = (b"PK\x03\x04", b"PK\x05\x06", b"PK\x07\x08")
+_ZIP_SYMLINK_MODE = 0o120000
+_ZIP_FILE_TYPE_MASK = 0o170000
 
 
 class KnowledgeParseError(ValueError):
@@ -58,6 +64,8 @@ def _validate_total_characters(units: list[ExtractionUnit]) -> None:
 
 
 def parse_pdf(data: bytes) -> list[ExtractionUnit]:
+    if b"%PDF-" not in data[:1024]:
+        raise KnowledgeParseError("knowledge_pdf_signature_invalid")
     try:
         reader = PdfReader(BytesIO(data), strict=False)
     except (PdfReadError, ValueError, OSError) as exc:
@@ -90,15 +98,39 @@ def parse_pdf(data: bytes) -> list[ExtractionUnit]:
     return units
 
 
+def _safe_archive_path(filename: str) -> bool:
+    normalized = filename.replace("\\", "/")
+    path = PurePosixPath(normalized)
+    return bool(normalized) and not path.is_absolute() and ".." not in path.parts
+
+
 def _validate_xlsx_archive(data: bytes) -> None:
+    if not data.startswith(_ZIP_SIGNATURES):
+        raise KnowledgeParseError("knowledge_xlsx_signature_invalid")
     try:
         with zipfile.ZipFile(BytesIO(data)) as archive:
             infos = archive.infolist()
             if len(infos) > MAX_XLSX_ZIP_ENTRIES:
                 raise KnowledgeParseError("knowledge_xlsx_too_many_entries")
-            expanded_size = sum(info.file_size for info in infos)
-            if expanded_size > MAX_XLSX_EXPANDED_BYTES:
-                raise KnowledgeParseError("knowledge_xlsx_expanded_too_large")
+            expanded_size = 0
+            for info in infos:
+                if info.flag_bits & 0x1:
+                    raise KnowledgeParseError("knowledge_xlsx_encrypted_entry")
+                if not _safe_archive_path(info.filename):
+                    raise KnowledgeParseError("knowledge_xlsx_unsafe_path")
+                unix_mode = (info.external_attr >> 16) & _ZIP_FILE_TYPE_MASK
+                if unix_mode == _ZIP_SYMLINK_MODE:
+                    raise KnowledgeParseError("knowledge_xlsx_symlink_entry")
+                if info.file_size > MAX_XLSX_ENTRY_BYTES:
+                    raise KnowledgeParseError("knowledge_xlsx_entry_too_large")
+                if info.file_size > 0:
+                    if info.compress_size <= 0:
+                        raise KnowledgeParseError("knowledge_xlsx_compression_invalid")
+                    if info.file_size / info.compress_size > MAX_XLSX_COMPRESSION_RATIO:
+                        raise KnowledgeParseError("knowledge_xlsx_compression_ratio_too_high")
+                expanded_size += info.file_size
+                if expanded_size > MAX_XLSX_EXPANDED_BYTES:
+                    raise KnowledgeParseError("knowledge_xlsx_expanded_too_large")
     except zipfile.BadZipFile as exc:
         raise KnowledgeParseError("knowledge_xlsx_invalid") from exc
 
