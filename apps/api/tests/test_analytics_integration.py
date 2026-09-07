@@ -13,7 +13,11 @@ from customers_manager_hub.agent_models import Agent, AgentPrompt
 from customers_manager_hub.ai_models import AIExecutionTrace
 from customers_manager_hub.analytics_models import AIModelPricing
 from customers_manager_hub.config import Settings
-from customers_manager_hub.handoff_models import ConversationHandoff, HandoffRequestSource, HandoffStatus
+from customers_manager_hub.handoff_models import (
+    ConversationHandoff,
+    HandoffRequestSource,
+    HandoffStatus,
+)
 from customers_manager_hub.main import create_app
 from customers_manager_hub.models import (
     AuditEvent,

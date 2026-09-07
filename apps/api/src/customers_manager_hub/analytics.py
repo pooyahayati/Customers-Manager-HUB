@@ -6,10 +6,9 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import or_, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from customers_manager_hub.agent_models import AgentRun
 from customers_manager_hub.ai_models import AIExecutionTrace
 from customers_manager_hub.analytics_models import AIModelPricing
 from customers_manager_hub.database import get_db_session
@@ -263,18 +262,12 @@ def _trace_cost(trace: AIExecutionTrace, price: AIModelPricing | None) -> Decima
         return Decimal("0")
     if price is None:
         return None
-    if (
-        (trace.total_tokens or 0) > 0
-        and trace.input_tokens is None
-        and trace.output_tokens is None
-    ):
+    if (trace.total_tokens or 0) > 0 and trace.input_tokens is None and trace.output_tokens is None:
         return None
     input_cost = Decimal(trace.input_tokens or 0) / _MILLION * price.input_per_million_usd
     output_cost = Decimal(trace.output_tokens or 0) / _MILLION * price.output_per_million_usd
     audio_cost = (
-        Decimal(str(trace.audio_seconds or 0.0))
-        / _MINUTE_SECONDS
-        * price.audio_per_minute_usd
+        Decimal(str(trace.audio_seconds or 0.0)) / _MINUTE_SECONDS * price.audio_per_minute_usd
     )
     return input_cost + output_cost + audio_cost
 
@@ -301,9 +294,7 @@ def _record_usage(
         accumulator.estimated_cost_usd += cost
 
 
-def _usage_breakdown(
-    key: tuple[str, str, str], accumulator: _UsageAccumulator
-) -> AIUsageBreakdown:
+def _usage_breakdown(key: tuple[str, str, str], accumulator: _UsageAccumulator) -> AIUsageBreakdown:
     provider, model_id, task_type = key
     average_latency = (
         accumulator.latency_total_ms / accumulator.latency_samples
@@ -513,7 +504,9 @@ async def _load_operational_overview(
                     Message.occurred_at >= window.start,
                     Message.occurred_at < window.end,
                 )
-                .order_by(Message.conversation_id, Message.occurred_at, Message.created_at, Message.id)
+                .order_by(
+                    Message.conversation_id, Message.occurred_at, Message.created_at, Message.id
+                )
             )
         ).all()
     )
@@ -555,11 +548,10 @@ async def _load_operational_overview(
         for message in all_messages_by_conversation.get(conversation_id, []):
             if message.occurred_at < first_inbound.occurred_at:
                 continue
-            if (
-                message.direction == MessageDirection.OUTBOUND.value
-                and message.author_type
-                in {MessageAuthorType.AI.value, MessageAuthorType.HUMAN.value}
-            ):
+            if message.direction == MessageDirection.OUTBOUND.value and message.author_type in {
+                MessageAuthorType.AI.value,
+                MessageAuthorType.HUMAN.value,
+            }:
                 first_response_seconds.append(
                     max(0.0, (message.occurred_at - first_inbound.occurred_at).total_seconds())
                 )
@@ -606,9 +598,7 @@ async def _load_operational_overview(
     handoff_count = len(active_conversation_ids & handoff_conversation_ids)
     automated_ids = (
         active_conversation_ids
-        & outbound_ai_conversations
-        - outbound_human_conversations
-        - handoff_conversation_ids
+        & outbound_ai_conversations - outbound_human_conversations - handoff_conversation_ids
     )
     return OperationalOverview(
         conversations=len(created_conversations),
