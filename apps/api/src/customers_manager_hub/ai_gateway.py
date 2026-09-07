@@ -139,9 +139,10 @@ class AIProviderError(Exception):
 
 
 class AIRoutingError(Exception):
-    def __init__(self, code: str) -> None:
+    def __init__(self, code: str, *, retryable: bool = False) -> None:
         super().__init__(code)
         self.code = code
+        self.retryable = retryable
 
 
 class AIProviderRegistry:
@@ -307,6 +308,7 @@ class AIGateway:
     ) -> ResultT:
         profile = await self._load_profile(tenant_id, task_type)
         last_error_code = "all_routes_failed"
+        any_retryable_failure = False
 
         for route in profile.routes:
             adapter = self._registry.get(route.provider)
@@ -351,6 +353,7 @@ class AIGateway:
                 except AIProviderError as exc:
                     latency_ms = max(0, round((perf_counter() - started) * 1000))
                     last_error_code = exc.code
+                    any_retryable_failure = any_retryable_failure or exc.retryable
                     await self._record_trace(
                         tenant_id=tenant_id,
                         profile=profile,
@@ -381,7 +384,7 @@ class AIGateway:
                 )
                 return result
 
-        raise AIRoutingError(last_error_code)
+        raise AIRoutingError(last_error_code, retryable=any_retryable_failure)
 
     @staticmethod
     async def _invoke_with_timeout(

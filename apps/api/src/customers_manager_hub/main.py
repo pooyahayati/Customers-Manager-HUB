@@ -4,6 +4,8 @@ from contextlib import asynccontextmanager
 import httpx2
 from fastapi import FastAPI
 
+from customers_manager_hub.agents import prompt_router
+from customers_manager_hub.agents import router as agents_router
 from customers_manager_hub.ai_gateway import AIGateway
 from customers_manager_hub.ai_profiles import router as ai_profiles_router
 from customers_manager_hub.ai_providers import build_live_provider_registry
@@ -58,6 +60,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.include_router(auth_router)
     application.include_router(tenants_router)
     application.include_router(ai_profiles_router)
+    application.include_router(prompt_router)
+    application.include_router(agents_router)
     application.include_router(channels_router)
     application.include_router(contacts_router)
     application.include_router(conversations_router)

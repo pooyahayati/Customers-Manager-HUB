@@ -7,6 +7,9 @@ from time import monotonic
 
 import httpx2
 
+from customers_manager_hub.agent_runtime import AgentRuntimeError, process_agent_event
+from customers_manager_hub.ai_gateway import AIGateway
+from customers_manager_hub.ai_providers import build_live_provider_registry
 from customers_manager_hub.channel_gateway import ChannelProviderError, ChannelRegistry
 from customers_manager_hub.channel_queue import ChannelJob, ChannelJobQueue, create_channel_redis
 from customers_manager_hub.channel_runtime import (
@@ -33,15 +36,16 @@ async def dependencies_ready(settings: Settings) -> bool:
     return postgres_ok and redis_ok
 
 
-async def _process_job(
+async def process_job(
     job: ChannelJob,
     queue: ChannelJobQueue,
-    registry: ChannelRegistry,
+    channel_registry: ChannelRegistry,
+    ai_gateway: AIGateway,
     settings: Settings,
     session_factory: AsyncSessionFactory,
 ) -> None:
     try:
-        await process_channel_event(session_factory, registry, settings, job.event_id)
+        await process_channel_event(session_factory, channel_registry, settings, job.event_id)
     except ChannelProviderError as exc:
         logger.warning(
             "channel provider job failed",
@@ -59,6 +63,30 @@ async def _process_job(
     except Exception:
         logger.exception("channel job failed", extra={"event_id": str(job.event_id)})
         return
+    else:
+        try:
+            await process_agent_event(
+                session_factory,
+                ai_gateway,
+                channel_registry,
+                settings,
+                job.event_id,
+            )
+        except AgentRuntimeError as exc:
+            log = logger.warning if exc.retryable else logger.error
+            log(
+                "agent job failed",
+                extra={
+                    "event_id": str(job.event_id),
+                    "error_code": exc.code,
+                    "retryable": exc.retryable,
+                },
+            )
+            if exc.retryable:
+                return
+        except Exception:
+            logger.exception("agent job failed", extra={"event_id": str(job.event_id)})
+            return
     await queue.acknowledge(job.stream_id)
 
 
@@ -90,7 +118,11 @@ async def run_worker_async(settings: Settings, stop_event: asyncio.Event | None 
 
     try:
         async with httpx2.AsyncClient() as external_http_client:
-            registry = ChannelRegistry((TelegramAdapter(external_http_client),))
+            channel_registry = ChannelRegistry((TelegramAdapter(external_http_client),))
+            ai_gateway = AIGateway(
+                build_live_provider_registry(settings, external_http_client),
+                session_factory,
+            )
             logger.info("worker started", extra={"consumer": consumer_name})
             last_reclaim = 0.0
             while not resolved_stop_event.is_set():
@@ -104,10 +136,11 @@ async def run_worker_async(settings: Settings, stop_event: asyncio.Event | None 
                 for job in jobs:
                     if resolved_stop_event.is_set():
                         break
-                    await _process_job(
+                    await process_job(
                         job,
                         queue,
-                        registry,
+                        channel_registry,
+                        ai_gateway,
                         settings,
                         session_factory,
                     )

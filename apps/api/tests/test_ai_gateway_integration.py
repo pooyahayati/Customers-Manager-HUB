@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from customers_manager_hub.ai_gateway import (
     AIGateway,
     AIProviderRegistry,
+    AIRoutingError,
     GenerationRequest,
     MockAIProviderAdapter,
 )
@@ -307,3 +308,61 @@ def test_gateway_retries_falls_back_and_persists_normalized_attempt_traces() -> 
         assert traces[-1].output_tokens == 1
         assert traces[-1].total_tokens == 2
         assert traces[0].error_code == "mock_retryable_failure"
+
+
+def test_retryable_failure_is_not_masked_by_later_unavailable_route() -> None:
+    tenant_id, _ = seed_tenant_user(
+        tenant_slug="retryability-tenant",
+        tenant_name="Retryability Tenant",
+        email="retryability@example.com",
+        password="retryability password",
+    )
+    with Session(SYNC_ENGINE, expire_on_commit=False) as db:
+        profile = AITaskProfile(
+            tenant_id=tenant_id,
+            task_type=AITaskType.CUSTOMER_RESPONSE.value,
+            timeout_seconds=5,
+            attempts_per_route=1,
+        )
+        db.add(profile)
+        db.flush()
+        db.add_all(
+            [
+                AITaskRoute(
+                    tenant_id=tenant_id,
+                    profile_id=profile.id,
+                    provider="retryable-mock",
+                    model_id="retryable-model",
+                    priority=0,
+                    parameters={},
+                ),
+                AITaskRoute(
+                    tenant_id=tenant_id,
+                    profile_id=profile.id,
+                    provider="missing-provider",
+                    model_id="missing-model",
+                    priority=1,
+                    parameters={},
+                ),
+            ]
+        )
+        db.commit()
+
+    retryable = MockAIProviderAdapter(key="retryable-mock", failures_before_success=1)
+    async_engine, session_factory = create_database(TEST_SETTINGS)
+    gateway = AIGateway(AIProviderRegistry([retryable]), session_factory)
+
+    async def run() -> None:
+        try:
+            with pytest.raises(AIRoutingError) as raised:
+                await gateway.generate(
+                    tenant_id,
+                    AITaskType.CUSTOMER_RESPONSE,
+                    GenerationRequest(input_text="Please retry later"),
+                )
+            assert raised.value.code == "provider_unavailable"
+            assert raised.value.retryable is True
+        finally:
+            await async_engine.dispose()
+
+    asyncio.run(run())
