@@ -355,7 +355,9 @@ async def create_tool(
         await db.commit()
     except IntegrityError as exc:
         await db.rollback()
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Tool already exists") from exc
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="Tool already exists"
+        ) from exc
     await db.refresh(tool)
     return _tool_response(tool, ToolCredentialMetadata(configured=False))
 
@@ -651,7 +653,9 @@ async def get_tool_execution(
         )
     )
     if execution is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tool execution not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Tool execution not found"
+        )
     return _execution_response(execution)
 
 
@@ -675,7 +679,9 @@ async def decide_tool_execution_approval(
         .with_for_update()
     )
     if execution is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tool execution not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Tool execution not found"
+        )
     if execution.approval_status != ToolApprovalStatus.PENDING.value:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Approval is not pending")
     now = datetime.now(UTC)
