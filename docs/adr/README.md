@@ -63,5 +63,6 @@ If an accepted decision materially changes, create a new ADR that supersedes the
 - ADR-016 — Gemini-First Provider-Neutral Voice Transcription
 - ADR-017 — Conversation Handoff State Machine and Operator Control Boundary
 - ADR-018 — Structured Customer Memory and Trust Boundary
+- ADR-019 — Deterministic Tenant Policy Engine
 
 Additional ADRs should be created only when a material implementation decision becomes imminent.
