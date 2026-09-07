@@ -66,26 +66,26 @@ jobs:
         run: docker compose -f compose.yaml build api web postgres
       - name: Materialize compose containers
         run: docker compose -f compose.yaml create --no-build api web postgres
-      - name: Scan high and critical fixed vulnerabilities
+      - name: Scan high and critical fixed vulnerabilities in runtime filesystems
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p /tmp/cmh-trivy
           for service in api web postgres; do
-            image_id=$(docker compose -f compose.yaml images -q "$service" | head -n 1)
-            test -n "$image_id"
-            docker image inspect "$image_id" >/dev/null
-            archive="/tmp/cmh-trivy/${service}.tar"
-            docker save --output "$archive" "$image_id"
+            container_id=$(docker compose -f compose.yaml ps -q --all "$service" | head -n 1)
+            test -n "$container_id"
+            rootfs="/tmp/cmh-trivy/${service}"
+            mkdir -p "$rootfs"
+            docker export "$container_id" | tar --no-same-owner -xf - -C "$rootfs"
             docker run --rm \
-              -v /tmp/cmh-trivy:/scan:ro \
+              -v "$rootfs:/scan:ro" \
               aquasec/trivy:0.74.0 \
-              image --input "/scan/${service}.tar" \
+              rootfs /scan \
               --scanners vuln \
               --severity HIGH,CRITICAL \
               --ignore-unfixed \
               --exit-code 1
-            rm -f "$archive"
+            rm -rf "$rootfs"
           done
       - name: Cleanup
         if: always()
