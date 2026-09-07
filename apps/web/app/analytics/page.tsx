@@ -21,7 +21,8 @@ export default function AnalyticsPage() {
           <p>
             Tenant-scoped operational metrics are served by the authenticated analytics API. This
             route is the initial admin dashboard surface and intentionally does not duplicate API
-            authorization or pricing logic in the web application.
+            authorization or pricing logic in the web application. Cost values are estimates based
+            on the tenant&apos;s effective-dated pricing configuration.
           </p>
         </div>
         <Link href="/">System home</Link>
