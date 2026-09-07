@@ -284,12 +284,15 @@ def test_extraction_never_overwrites_manual_memory() -> None:
         assert memory.value == "Persian"
         assert memory.source_type == MemorySourceType.MANUAL.value
         assert memory.created_by_user_id == owner_id
-        assert db.scalar(
-            select(CustomerMemoryExtraction.id).where(
-                CustomerMemoryExtraction.tenant_id == tenant_id,
-                CustomerMemoryExtraction.source_message_id.is_not(None),
+        assert (
+            db.scalar(
+                select(CustomerMemoryExtraction.id).where(
+                    CustomerMemoryExtraction.tenant_id == tenant_id,
+                    CustomerMemoryExtraction.source_message_id.is_not(None),
+                )
             )
-        ) is not None
+            is not None
+        )
 
 
 def test_stale_extraction_cannot_replace_newer_memory() -> None:
