@@ -13,7 +13,8 @@ from uuid import UUID
 
 import httpx2
 from jsonschema import Draft202012Validator
-from jsonschema.exceptions import SchemaError, ValidationError as JsonSchemaValidationError
+from jsonschema.exceptions import SchemaError
+from jsonschema.exceptions import ValidationError as JsonSchemaValidationError
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
@@ -154,9 +155,7 @@ def qualified_tool_name(name: str, version: int) -> str:
 def normalize_tool_name(value: str) -> str:
     normalized = value.strip().casefold()
     if not _TOOL_NAME_PATTERN.fullmatch(normalized):
-        raise ValueError(
-            "Tool name must use lowercase letters, digits, dot, underscore, or hyphen"
-        )
+        raise ValueError("Tool name must use lowercase letters, digits, dot, underscore, or hyphen")
     return normalized
 
 
@@ -203,7 +202,7 @@ def validate_tool_payload(
     limit = _OUTPUT_SIZE_LIMIT if output else _INPUT_SIZE_LIMIT
     _bounded_json(payload, limit, code="tool_payload_too_large")
     try:
-        Draft202012Validator(schema).validate(payload)
+        Draft202012Validator(schema).validate(payload)  # pyright: ignore[reportUnknownMemberType]
     except JsonSchemaValidationError as exc:
         code = "tool_output_schema_invalid" if output else "tool_input_schema_invalid"
         raise ToolRuntimeError(code) from exc
@@ -275,16 +274,18 @@ async def ensure_public_destination(url: str, resolver: Resolver) -> None:
     try:
         literal = ipaddress.ip_address(host)
     except ValueError:
-        addresses = await resolver(host, parts.port or 443)
-        for address in addresses:
-            try:
-                resolved = ipaddress.ip_address(address)
-            except ValueError as exc:
-                raise ToolAdapterError("tool_dns_resolution_invalid", retryable=False) from exc
-            if not resolved.is_global:
-                raise ToolAdapterError("tool_ssrf_destination_denied", retryable=False)
-    else:
+        literal = None
+    if literal is not None:
         if not literal.is_global:
+            raise ToolAdapterError("tool_ssrf_destination_denied", retryable=False)
+        return
+    addresses = await resolver(host, parts.port or 443)
+    for address in addresses:
+        try:
+            resolved = ipaddress.ip_address(address)
+        except ValueError as exc:
+            raise ToolAdapterError("tool_dns_resolution_invalid", retryable=False) from exc
+        if not resolved.is_global:
             raise ToolAdapterError("tool_ssrf_destination_denied", retryable=False)
 
 
@@ -336,7 +337,11 @@ def normalize_tool_configuration(
         if not isinstance(location_value, str) or location_value not in {"query", "json"}:
             raise ValueError("argument_location must be query or json")
         if adapter_kind == ToolAdapterKind.BUSINESS_REFERENCE:
-            if operation_type != ToolOperationType.READ or method != "GET" or location_value != "query":
+            if (
+                operation_type != ToolOperationType.READ
+                or method != "GET"
+                or location_value != "query"
+            ):
                 raise ValueError("Business reference tools must be read-only GET query tools")
         elif operation_type == ToolOperationType.READ and method != "GET":
             raise ValueError("Read Generic REST tools must use GET")
@@ -465,17 +470,25 @@ class RestToolAdapter:
         idempotency_header = configuration.get("idempotency_header")
         if isinstance(idempotency_header, str):
             headers[idempotency_header] = request.execution_token
-        kwargs: dict[str, object] = {
-            "headers": headers,
-            "timeout": float(request.timeout_seconds),
-            "follow_redirects": False,
-        }
-        if location == "query":
-            kwargs["params"] = _query_params(request.arguments)
-        else:
-            kwargs["json"] = request.arguments
         try:
-            response = await self._client.request(method, url, **kwargs)
+            if location == "query":
+                response = await self._client.request(
+                    method,
+                    url,
+                    headers=headers,
+                    params=_query_params(request.arguments),
+                    timeout=float(request.timeout_seconds),
+                    follow_redirects=False,
+                )
+            else:
+                response = await self._client.request(
+                    method,
+                    url,
+                    headers=headers,
+                    json=request.arguments,
+                    timeout=float(request.timeout_seconds),
+                    follow_redirects=False,
+                )
         except httpx2.TimeoutException as exc:
             raise ToolAdapterError("tool_http_timeout", retryable=True) from exc
         except httpx2.TransportError as exc:
@@ -885,7 +898,10 @@ class ToolRuntime:
                 await db.commit()
                 execution = stale
 
-        if self._approval_required(tool) and execution.approval_status != ToolApprovalStatus.APPROVED.value:
+        if (
+            self._approval_required(tool)
+            and execution.approval_status != ToolApprovalStatus.APPROVED.value
+        ):
             return self._result(execution, qualified_name)
 
         await self._mark_running(execution.id, tenant_id)

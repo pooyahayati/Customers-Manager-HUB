@@ -22,6 +22,7 @@ from customers_manager_hub.health import router as health_router
 from customers_manager_hub.logging_config import configure_logging
 from customers_manager_hub.telegram import TelegramAdapter
 from customers_manager_hub.tenants import router as tenants_router
+from customers_manager_hub.tools import router as tools_router
 from customers_manager_hub.website import WebsiteAdapter
 from customers_manager_hub.website_chat import admin_router as website_admin_router
 from customers_manager_hub.website_chat import public_router as website_public_router
@@ -67,6 +68,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.include_router(ai_profiles_router)
     application.include_router(prompt_router)
     application.include_router(agents_router)
+    application.include_router(tools_router)
     application.include_router(website_admin_router)
     application.include_router(channels_router)
     application.include_router(contacts_router)
