@@ -57,6 +57,7 @@ from customers_manager_hub.models import (
     MessageType,
     TenantRole,
 )
+from customers_manager_hub.policy_models import TenantPolicy
 from customers_manager_hub.tenants import TenantContextDependency, require_tenant_role
 
 router = APIRouter(
@@ -385,6 +386,31 @@ async def put_handoff_policy(
         policy.enabled = payload.enabled
         policy.customer_keywords = payload.customer_keywords
         policy.pause_on_tool_approval = payload.pause_on_tool_approval
+
+    tenant_policy = await db.scalar(
+        select(TenantPolicy).where(TenantPolicy.tenant_id == context.tenant.id)
+    )
+    if tenant_policy is None:
+        tenant_policy = TenantPolicy(
+            tenant_id=context.tenant.id,
+            enabled=payload.enabled,
+            revision=1,
+            timezone="UTC",
+            business_hours={},
+            outside_business_hours_action="allow",
+            autonomy_mode="autonomous",
+            message_rules={},
+            handoff_keywords=payload.customer_keywords,
+            handoff_on_tool_approval=payload.pause_on_tool_approval,
+            approval_min_risk="high",
+            require_approval_for_writes=False,
+        )
+        db.add(tenant_policy)
+    else:
+        tenant_policy.enabled = payload.enabled
+        tenant_policy.revision += 1
+        tenant_policy.handoff_keywords = payload.customer_keywords
+        tenant_policy.handoff_on_tool_approval = payload.pause_on_tool_approval
     db.add(
         AuditEvent(
             tenant_id=context.tenant.id,
