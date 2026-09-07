@@ -9,6 +9,7 @@ from customers_manager_hub import channel_models as _channel_models  # noqa: F40
 from customers_manager_hub import handoff_models as _handoff_models  # noqa: F401
 from customers_manager_hub import knowledge_models as _knowledge_models  # noqa: F401
 from customers_manager_hub import memory_models as _memory_models  # noqa: F401
+from customers_manager_hub import policy_models as _policy_models  # noqa: F401
 from customers_manager_hub import tool_models as _tool_models  # noqa: F401
 from customers_manager_hub.config import get_settings
 from customers_manager_hub.models import Base
