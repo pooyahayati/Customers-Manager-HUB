@@ -155,20 +155,36 @@ def test_memory_api_is_tenant_scoped_audited_and_soft_deletes() -> None:
         assert created.json()["source_type"] == "manual"
         assert created.json()["verified_at"] is not None
 
+        duplicate = client_a.post(
+            f"/api/v1/tenants/{tenant_a}/contacts/{contact_id}/memories",
+            json={
+                "category": "preferred_language",
+                "value": "Persian",
+                "evidence_kind": "fact",
+                "confidence": 1.0,
+            },
+        )
+        assert duplicate.status_code == 409
+
         updated = client_a.patch(
             f"/api/v1/tenants/{tenant_a}/contacts/{contact_id}/memories/{memory_id}",
-            json={"value": "Farsi", "confidence": 0.95},
+            json={
+                "category": "detail_level",
+                "value": "detailed",
+                "confidence": 0.95,
+            },
         )
         assert updated.status_code == 200
-        assert updated.json()["value"] == "Farsi"
+        assert updated.json()["category"] == "detail_level"
+        assert updated.json()["value"] == "detailed"
 
         deleted = client_a.delete(
             f"/api/v1/tenants/{tenant_a}/contacts/{contact_id}/memories/{memory_id}"
         )
         assert deleted.status_code == 204
-        assert client_a.get(
-            f"/api/v1/tenants/{tenant_a}/contacts/{contact_id}/memories"
-        ).json() == []
+        assert (
+            client_a.get(f"/api/v1/tenants/{tenant_a}/contacts/{contact_id}/memories").json() == []
+        )
         deleted_listing = client_a.get(
             f"/api/v1/tenants/{tenant_a}/contacts/{contact_id}/memories?include_deleted=true"
         )
@@ -178,9 +194,7 @@ def test_memory_api_is_tenant_scoped_audited_and_soft_deletes() -> None:
     with TestClient(create_app(TEST_SETTINGS)) as client_b:
         login(client_b, "owner-b@example.com", "owner password b")
         assert (
-            client_b.get(
-                f"/api/v1/tenants/{tenant_b}/contacts/{contact_id}/memories"
-            ).status_code
+            client_b.get(f"/api/v1/tenants/{tenant_b}/contacts/{contact_id}/memories").status_code
             == 404
         )
 
@@ -234,9 +248,7 @@ def test_memory_context_excludes_untrusted_stale_and_deleted_items() -> None:
                 contact_id=contact.id,
                 category=MemoryCategory.PRODUCT_INTEREST.value,
                 value="Enterprise plan",
-                dedupe_key=memory_dedupe_key(
-                    MemoryCategory.PRODUCT_INTEREST, "Enterprise plan"
-                ),
+                dedupe_key=memory_dedupe_key(MemoryCategory.PRODUCT_INTEREST, "Enterprise plan"),
                 evidence_kind=MemoryEvidenceKind.INFERENCE.value,
                 confidence=0.98,
                 source_type=MemorySourceType.CUSTOMER_MESSAGE.value,
@@ -260,9 +272,7 @@ def test_memory_context_excludes_untrusted_stale_and_deleted_items() -> None:
                 contact_id=contact.id,
                 category=MemoryCategory.RESOLUTION.value,
                 value="Deleted resolution",
-                dedupe_key=memory_dedupe_key(
-                    MemoryCategory.RESOLUTION, "Deleted resolution"
-                ),
+                dedupe_key=memory_dedupe_key(MemoryCategory.RESOLUTION, "Deleted resolution"),
                 evidence_kind=MemoryEvidenceKind.FACT.value,
                 confidence=0.99,
                 source_type=MemorySourceType.MANUAL.value,
@@ -417,9 +427,12 @@ def test_ai_memory_extraction_is_structured_and_idempotent() -> None:
         interest = by_category[MemoryCategory.PRODUCT_INTEREST.value]
         assert interest.evidence_kind == MemoryEvidenceKind.INFERENCE.value
         assert interest.verified_at is None
-        assert db.scalar(
-            select(CustomerMemoryExtraction.id).where(
-                CustomerMemoryExtraction.tenant_id == tenant_id,
-                CustomerMemoryExtraction.source_message_id == message_id,
+        assert (
+            db.scalar(
+                select(CustomerMemoryExtraction.id).where(
+                    CustomerMemoryExtraction.tenant_id == tenant_id,
+                    CustomerMemoryExtraction.source_message_id == message_id,
+                )
             )
-        ) is not None
+            is not None
+        )

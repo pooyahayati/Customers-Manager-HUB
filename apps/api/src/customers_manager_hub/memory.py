@@ -43,6 +43,7 @@ class MemoryCreate(BaseModel):
 
 
 class MemoryUpdate(BaseModel):
+    category: MemoryCategory | None = None
     value: str | None = Field(default=None, min_length=1, max_length=1_000)
     evidence_kind: MemoryEvidenceKind | None = None
     confidence: float | None = Field(default=None, ge=0, le=1)
@@ -182,7 +183,14 @@ async def create_customer_memory(
         verified_by_user_id=context.current.user.id,
     )
     db.add(item)
-    await db.flush()
+    try:
+        await db.flush()
+    except IntegrityError as exc:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="An active memory item already exists for this category/value",
+        ) from exc
     db.add(
         AuditEvent(
             tenant_id=context.tenant.id,
@@ -221,15 +229,17 @@ async def update_customer_memory(
 
     now = datetime.now(UTC)
     changed = False
-    if payload.value is not None:
-        category = MemoryCategory(item.category)
+    if payload.category is not None or payload.value is not None:
+        category = payload.category or MemoryCategory(item.category)
+        source_value = payload.value if payload.value is not None else item.value
         try:
-            value = normalize_memory_value(category, payload.value)
+            value = normalize_memory_value(category, source_value)
         except MemoryRuntimeError as exc:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail=exc.code,
             ) from exc
+        item.category = category.value
         item.value = value
         item.dedupe_key = memory_dedupe_key(category, value)
         changed = True
