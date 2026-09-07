@@ -23,6 +23,7 @@ from customers_manager_hub.models import Base
 
 class ChannelType(StrEnum):
     TELEGRAM = "telegram"
+    WEBSITE = "website"
 
 
 class ChannelCapability(StrEnum):
@@ -46,7 +47,7 @@ class ChannelInboundEventStatus(StrEnum):
 class ChannelAccount(Base):
     __tablename__ = "channel_accounts"
     __table_args__ = (
-        CheckConstraint("channel_type IN ('telegram')", name="ck_channel_accounts_type"),
+        CheckConstraint("channel_type IN ('telegram', 'website')", name="ck_channel_accounts_type"),
         UniqueConstraint("id", "tenant_id", name="uq_channel_accounts_id_tenant"),
         UniqueConstraint(
             "channel_type",
@@ -216,6 +217,74 @@ class ChannelInboundEvent(Base):
         nullable=True,
     )
     error_code: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
+class WebsiteChannelOrigin(Base):
+    __tablename__ = "website_channel_origins"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["channel_account_id", "tenant_id"],
+            ["channel_accounts.id", "channel_accounts.tenant_id"],
+            ondelete="CASCADE",
+            name="fk_website_channel_origins_account_tenant",
+        ),
+        UniqueConstraint(
+            "channel_account_id",
+            "origin",
+            name="uq_website_channel_origins_account_origin",
+        ),
+        Index(
+            "ix_website_channel_origins_tenant_account",
+            "tenant_id",
+            "channel_account_id",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
+    tenant_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    channel_account_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    origin: Mapped[str] = mapped_column(String(512), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class WebsiteChatSession(Base):
+    __tablename__ = "website_chat_sessions"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["channel_account_id", "tenant_id"],
+            ["channel_accounts.id", "channel_accounts.tenant_id"],
+            ondelete="CASCADE",
+            name="fk_website_chat_sessions_account_tenant",
+        ),
+        UniqueConstraint(
+            "channel_account_id",
+            "visitor_id",
+            name="uq_website_chat_sessions_account_visitor",
+        ),
+        UniqueConstraint("token_hash", name="uq_website_chat_sessions_token_hash"),
+        Index(
+            "ix_website_chat_sessions_tenant_account",
+            "tenant_id",
+            "channel_account_id",
+            "created_at",
+        ),
+        Index("ix_website_chat_sessions_expires", "expires_at"),
+    )
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
+    tenant_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    channel_account_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    visitor_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False, default=uuid4)
+    token_hash: Mapped[bytes] = mapped_column(LargeBinary(32), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

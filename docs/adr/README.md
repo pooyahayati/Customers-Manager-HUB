@@ -57,5 +57,6 @@ If an accepted decision materially changes, create a new ADR that supersedes the
 - ADR-010 — Redis Streams for Channel Job Queue
 - ADR-011 — Encrypted Channel Credentials
 - ADR-012 — Versioned Prompts and Durable Agent Runs
+- ADR-013 — Website Chat Public Session and Polling Transport
 
 Additional ADRs should be created only when a material implementation decision becomes imminent.
