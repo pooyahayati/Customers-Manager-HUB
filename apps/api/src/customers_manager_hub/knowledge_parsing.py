@@ -65,7 +65,7 @@ def _validate_total_characters(units: list[ExtractionUnit]) -> None:
 
 def parse_pdf(data: bytes) -> list[ExtractionUnit]:
     if b"%PDF-" not in data[:1024]:
-        raise KnowledgeParseError("knowledge_pdf_signature_invalid")
+        raise KnowledgeParseError("knowledge_pdf_invalid")
     try:
         reader = PdfReader(BytesIO(data), strict=False)
     except (PdfReadError, ValueError, OSError) as exc:
@@ -106,7 +106,7 @@ def _safe_archive_path(filename: str) -> bool:
 
 def _validate_xlsx_archive(data: bytes) -> None:
     if not data.startswith(_ZIP_SIGNATURES):
-        raise KnowledgeParseError("knowledge_xlsx_signature_invalid")
+        raise KnowledgeParseError("knowledge_xlsx_invalid")
     try:
         with zipfile.ZipFile(BytesIO(data)) as archive:
             infos = archive.infolist()
