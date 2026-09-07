@@ -60,7 +60,6 @@ from customers_manager_hub.tool_models import (
     ToolAdapterKind,
     ToolApprovalStatus,
     ToolCredential,
-    ToolDefinition,
     ToolExecution,
     ToolExecutionStatus,
 )
