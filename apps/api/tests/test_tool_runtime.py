@@ -221,7 +221,8 @@ def test_google_sheets_adapter_uses_fixed_google_endpoint_and_bearer() -> None:
     def handler(request: httpx2.Request) -> httpx2.Response:
         assert request.method == "GET"
         assert request.url.host == "sheets.googleapis.com"
-        assert request.url.path == "/v4/spreadsheets/abcdefghijk/values/Products%21A1%3AC20"
+        assert request.url.path == "/v4/spreadsheets/abcdefghijk/values/Products!A1:C20"
+        assert "Products%21A1%3AC20" in str(request.url)
         assert request.url.params["valueRenderOption"] == "UNFORMATTED_VALUE"
         assert request.headers["authorization"] == f"Bearer {secret}"
         return httpx2.Response(
