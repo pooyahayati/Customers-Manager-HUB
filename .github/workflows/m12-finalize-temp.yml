@@ -1,0 +1,115 @@
+name: M12 Finalize Temporary
+
+on:
+  push:
+    branches: [feat/m12-customer-memory]
+    paths: [.github/workflows/m12-finalize-temp.yml]
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: pgvector/pgvector:pg18
+        env:
+          POSTGRES_USER: cmh
+          POSTGRES_PASSWORD: change-me
+          POSTGRES_DB: customers_manager_hub
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U cmh -d customers_manager_hub"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+      redis:
+        image: redis:8-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      APP_ENV: test
+      DATABASE_URL: postgresql+psycopg://cmh:change-me@localhost:5432/customers_manager_hub
+      REDIS_URL: redis://localhost:6379/0
+      RUN_DB_INTEGRATION: "1"
+      ENCRYPTION_KEY: dmFsaWRfdGVzdF9rZXlfMzJfYnl0ZXNfbG9uZ19fX18=
+      TELEGRAM_WEBHOOK_BASE_URL: https://channels.example.test
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: feat/m12-customer-memory
+      - uses: actions/setup-python@v5
+        with:
+          python-version-file: .python-version
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --frozen
+
+      - name: Apply final M12 fixes
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          api = Path('apps/api/src/customers_manager_hub/memory.py')
+          text = api.read_text()
+
+          text = text.replace(
+              'class MemoryUpdate(BaseModel):\n    value: str | None = Field(default=None, min_length=1, max_length=1_000)\n',
+              'class MemoryUpdate(BaseModel):\n    category: MemoryCategory | None = None\n    value: str | None = Field(default=None, min_length=1, max_length=1_000)\n',
+          )
+
+          old_flush = '''    db.add(item)\n    await db.flush()\n    db.add(\n        AuditEvent(\n'''
+          new_flush = '''    db.add(item)\n    try:\n        await db.flush()\n    except IntegrityError as exc:\n        await db.rollback()\n        raise HTTPException(\n            status_code=status.HTTP_409_CONFLICT,\n            detail="An active memory item already exists for this category/value",\n        ) from exc\n    db.add(\n        AuditEvent(\n'''
+          if old_flush not in text and new_flush not in text:
+              raise SystemExit('create flush anchor not found')
+          text = text.replace(old_flush, new_flush, 1)
+
+          old_update = '''    changed = False\n    if payload.value is not None:\n        category = MemoryCategory(item.category)\n        try:\n            value = normalize_memory_value(category, payload.value)\n        except MemoryRuntimeError as exc:\n            raise HTTPException(\n                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,\n                detail=exc.code,\n            ) from exc\n        item.value = value\n        item.dedupe_key = memory_dedupe_key(category, value)\n        changed = True\n'''
+          new_update = '''    changed = False\n    if payload.category is not None or payload.value is not None:\n        category = payload.category or MemoryCategory(item.category)\n        source_value = payload.value if payload.value is not None else item.value\n        try:\n            value = normalize_memory_value(category, source_value)\n        except MemoryRuntimeError as exc:\n            raise HTTPException(\n                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,\n                detail=exc.code,\n            ) from exc\n        item.category = category.value\n        item.value = value\n        item.dedupe_key = memory_dedupe_key(category, value)\n        changed = True\n'''
+          if old_update not in text and new_update not in text:
+              raise SystemExit('update category anchor not found')
+          text = text.replace(old_update, new_update)
+          api.write_text(text)
+
+          tests = Path('apps/api/tests/test_memory_integration.py')
+          test_text = tests.read_text()
+          duplicate_anchor = '''        memory_id = created.json()["id"]\n        assert created.json()["source_type"] == "manual"\n        assert created.json()["verified_at"] is not None\n\n        updated = client_a.patch(\n'''
+          duplicate_block = '''        memory_id = created.json()["id"]\n        assert created.json()["source_type"] == "manual"\n        assert created.json()["verified_at"] is not None\n\n        duplicate = client_a.post(\n            f"/api/v1/tenants/{tenant_a}/contacts/{contact_id}/memories",\n            json={\n                "category": "preferred_language",\n                "value": "Persian",\n                "evidence_kind": "fact",\n                "confidence": 1.0,\n            },\n        )\n        assert duplicate.status_code == 409\n\n        updated = client_a.patch(\n'''
+          if duplicate_anchor in test_text:
+              test_text = test_text.replace(duplicate_anchor, duplicate_block)
+          elif 'assert duplicate.status_code == 409' not in test_text:
+              raise SystemExit('duplicate test anchor not found')
+
+          update_anchor = '''            json={"value": "Farsi", "confidence": 0.95},\n        )\n        assert updated.status_code == 200\n        assert updated.json()["value"] == "Farsi"\n'''
+          update_block = '''            json={\n                "category": "detail_level",\n                "value": "detailed",\n                "confidence": 0.95,\n            },\n        )\n        assert updated.status_code == 200\n        assert updated.json()["category"] == "detail_level"\n        assert updated.json()["value"] == "detailed"\n'''
+          if update_anchor in test_text:
+              test_text = test_text.replace(update_anchor, update_block)
+          elif 'assert updated.json()["category"] == "detail_level"' not in test_text:
+              raise SystemExit('category update test anchor not found')
+          tests.write_text(test_text)
+          PY
+
+      - run: uv run ruff format apps/api/src apps/api/tests apps/api/migrations
+      - run: uv run ruff check apps/api/src apps/api/tests apps/api/migrations
+      - run: uv run ruff format --check apps/api/src apps/api/tests apps/api/migrations
+      - run: uv run pyright apps/api/src apps/api/tests
+      - name: Migration gate
+        run: |
+          uv run alembic upgrade head
+          uv run alembic check
+      - name: M12 focused integration
+        run: uv run pytest apps/api/tests/test_memory_integration.py -q
+      - name: Integration regression
+        run: uv run pytest apps/api/tests/test_*_integration.py -q
+      - name: Unit regression
+        run: env -u ENCRYPTION_KEY RUN_DB_INTEGRATION=0 uv run pytest apps/api/tests -q
+      - name: Commit normalized M12 source
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add apps/api/src apps/api/tests apps/api/migrations
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git commit -m "feat: finalize M12 customer memory runtime"
+          git push origin HEAD:feat/m12-customer-memory
