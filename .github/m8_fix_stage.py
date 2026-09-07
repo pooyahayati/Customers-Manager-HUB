@@ -13,6 +13,28 @@ def replace_once(path: str, old: str, new: str) -> None:
 
 replace_once(
     "apps/api/src/customers_manager_hub/agent_runtime.py",
+    "from time import perf_counter\n",
+    "from time import perf_counter\nfrom typing import cast\n",
+)
+
+replace_once(
+    "apps/api/src/customers_manager_hub/agent_runtime.py",
+    '''    raw_arguments = arguments
+    if not all(isinstance(key, str) for key in raw_arguments):
+        raise AgentRuntimeError("agent_tool_decision_invalid", retryable=True)
+    normalized_arguments = {str(key): value for key, value in raw_arguments.items()}
+''',
+    '''    raw_arguments = cast(dict[object, object], arguments)
+    normalized_arguments: dict[str, object] = {}
+    for key, value in raw_arguments.items():
+        if not isinstance(key, str):
+            raise AgentRuntimeError("agent_tool_decision_invalid", retryable=True)
+        normalized_arguments[key] = value
+''',
+)
+
+replace_once(
+    "apps/api/src/customers_manager_hub/agent_runtime.py",
     '''    working_input = model_input
     tool_calls = 0
     for _round in range(_MAX_TOOL_ROUNDS):
@@ -59,6 +81,12 @@ replace_once(
         if not resolved.is_global:
             raise ToolAdapterError("tool_ssrf_destination_denied", retryable=False)
 ''',
+)
+
+replace_once(
+    "apps/api/src/customers_manager_hub/tool_runtime.py",
+    "        Draft202012Validator(schema).validate(payload)\n",
+    "        Draft202012Validator(schema).validate(payload)  # pyright: ignore[reportUnknownMemberType]\n",
 )
 
 replace_once(
