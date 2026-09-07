@@ -87,6 +87,9 @@ jobs:
       RUN_DB_INTEGRATION: "1"
       ENCRYPTION_KEY: dmFsaWRfdGVzdF9rZXlfMzJfYnl0ZXNfbG9uZ19fX18=
       TELEGRAM_WEBHOOK_BASE_URL: https://channels.example.test
+      RATE_LIMIT_LOGIN_REQUESTS: "10000"
+      RATE_LIMIT_PUBLIC_REQUESTS: "100000"
+      RATE_LIMIT_WEBHOOK_REQUESTS: "100000"
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v5
