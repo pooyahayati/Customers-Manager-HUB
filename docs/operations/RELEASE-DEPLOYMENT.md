@@ -7,7 +7,7 @@ This runbook defines the first production release path for Customers Manager HUB
 A release is valid only when all of the following are true:
 
 - the release commit is the current `main` commit;
-- the requested tag matches `pyproject.toml` (`v0.1.0` for the first MVP release);
+- the requested tag matches `pyproject.toml` (`v0.2.0` for this release);
 - CI has succeeded on that exact `main` commit;
 - Security has succeeded on that exact `main` commit;
 - the Release workflow builds images from that exact commit.
@@ -16,17 +16,17 @@ The Release workflow enforces these checks before publishing.
 
 ## 2. Published artifacts
 
-For version `0.1.0`, the Release workflow publishes:
+For version `0.2.0`, the Release workflow publishes:
 
 ```text
-ghcr.io/pooyahayati/customers-manager-hub-api:0.1.0
-ghcr.io/pooyahayati/customers-manager-hub-web:0.1.0
-ghcr.io/pooyahayati/customers-manager-hub-postgres:0.1.0
+ghcr.io/pooyahayati/customers-manager-hub-api:0.2.0
+ghcr.io/pooyahayati/customers-manager-hub-web:0.2.0
+ghcr.io/pooyahayati/customers-manager-hub-postgres:0.2.0
 ```
 
 The worker uses the same application image as the API with the worker command supplied by Compose.
 
-The workflow also creates GitHub Release `v0.1.0` and attaches `release-manifest.txt` containing the source SHA and exact image coordinates.
+The workflow also creates GitHub Release `v0.2.0` and attaches `release-manifest.txt` containing the source SHA and exact image coordinates.
 
 If GHCR package visibility requires authentication on the deployment host, authenticate with a read-only package credential before pulling images.
 
@@ -63,9 +63,9 @@ Do not commit the production `.env` file. Prefer the platform's secret store or 
 On the deployment host:
 
 ```bash
-export CMH_API_IMAGE=ghcr.io/pooyahayati/customers-manager-hub-api:0.1.0
-export CMH_WEB_IMAGE=ghcr.io/pooyahayati/customers-manager-hub-web:0.1.0
-export CMH_POSTGRES_IMAGE=ghcr.io/pooyahayati/customers-manager-hub-postgres:0.1.0
+export CMH_API_IMAGE=ghcr.io/pooyahayati/customers-manager-hub-api:0.2.0
+export CMH_WEB_IMAGE=ghcr.io/pooyahayati/customers-manager-hub-web:0.2.0
+export CMH_POSTGRES_IMAGE=ghcr.io/pooyahayati/customers-manager-hub-postgres:0.2.0
 ```
 
 Validate the merged Compose model:

@@ -2,6 +2,25 @@
 
 All notable changes to Customers Manager HUB are documented here.
 
+## [0.2.0] - 2026-09-13
+
+### Added
+
+- Platform Owner administration for Businesses and Business users.
+- Encrypted OpenAI and Google Gemini credentials with connection checks, model discovery, and global task-based routing.
+- Effective-dated Rial selling rates, manual Business wallet credits, per-message token/audio usage attribution, and optional Rial/Toman display.
+- Owner-only navigation and redacted server-side AI configuration.
+- Local Vazirmatn font for Persian RTL and English LTR interfaces, with light and dark themes.
+- Business-facing Agents, Channels, Knowledge Base, and Rules & Controls interfaces.
+- Windows Docker Desktop launcher and Linux Docker Compose production installation with Caddy HTTPS ingress.
+- Business operating model and project relationship graph for controlled future delivery.
+
+### Security
+
+- Platform administration endpoints deny every non-Owner role.
+- Legacy bootstrap identity is promoted safely to Platform Owner during migration `0013`.
+- Production Compose exposes only Caddy public ports while internal services remain private.
+
 ## [0.1.0] - 2026-09-08
 
 First commercial MVP release candidate.
