@@ -25,7 +25,10 @@ WORKDIR /app
 # The application image is immutable at runtime. Packaging/bootstrap tooling is
 # not needed after the locked virtualenv is copied in, so remove it and its
 # vendored/metadata artifacts from the final stage to reduce attack surface.
-RUN rm -rf \
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends --only-upgrade libpcre2-8-0 \
+    && rm -rf /var/lib/apt/lists/* \
+    && rm -rf \
         /usr/local/lib/python3.14/site-packages/pip \
         /usr/local/lib/python3.14/site-packages/pip-*.dist-info \
         /usr/local/lib/python3.14/site-packages/setuptools \
