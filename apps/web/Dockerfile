@@ -33,7 +33,10 @@ WORKDIR /app
 
 # The standalone Next.js server only needs the Node runtime. Remove npm,
 # Corepack, and Yarn from the final image to reduce package-manager attack surface.
-RUN rm -rf \
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends --only-upgrade libpcre2-8-0 \
+    && rm -rf /var/lib/apt/lists/* \
+    && rm -rf \
         /usr/local/lib/node_modules/npm \
         /usr/local/lib/node_modules/corepack \
         /opt/yarn-v1.22.22 \
