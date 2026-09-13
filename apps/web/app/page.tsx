@@ -1,11 +1,5 @@
-import Link from "next/link";
+import { DashboardApp } from "./components/dashboard-app";
 
 export default function Home() {
-  return (
-    <main className="bootstrap">
-      <h1>Customers Manager HUB</h1>
-      <p>System bootstrap running</p>
-      <Link href="/analytics">Open analytics foundation</Link>
-    </main>
-  );
+  return <DashboardApp />;
 }

@@ -316,6 +316,7 @@ async def extract_customer_memory_from_event(
                 instructions=_EXTRACTION_INSTRUCTIONS,
                 json_schema=_memory_schema(),
                 schema_name="customer_memory_extraction",
+                message_id=source_message_id,
             ),
         )
     except AIRoutingError as exc:

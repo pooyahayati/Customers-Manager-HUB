@@ -10,6 +10,7 @@ import httpx2
 from customers_manager_hub.agent_runtime import AgentRuntimeError, process_agent_event
 from customers_manager_hub.ai_gateway import AIGateway
 from customers_manager_hub.ai_providers import build_live_provider_registry
+from customers_manager_hub.billing_runtime import AIBillingService
 from customers_manager_hub.channel_gateway import ChannelProviderError, ChannelRegistry
 from customers_manager_hub.channel_queue import ChannelJob, ChannelJobQueue, create_channel_redis
 from customers_manager_hub.channel_runtime import (
@@ -293,8 +294,9 @@ async def run_worker_async(settings: Settings, stop_event: asyncio.Event | None 
                 (TelegramAdapter(external_http_client), WebsiteAdapter())
             )
             ai_gateway = AIGateway(
-                build_live_provider_registry(settings, external_http_client),
+                build_live_provider_registry(settings, external_http_client, session_factory),
                 session_factory,
+                AIBillingService(session_factory),
             )
             policy_engine = PolicyEngine(session_factory)
             tool_runtime = ToolRuntime(

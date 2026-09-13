@@ -13,7 +13,9 @@ __pycache__
 .coverage
 htmlcov
 node_modules
+**/node_modules
 .next
+**/.next
 out
 dist
 build

@@ -9,14 +9,14 @@ WORKDIR /app
 RUN python -m pip install --no-cache-dir uv==0.12.10
 
 COPY pyproject.toml uv.lock README.md ./
-COPY apps/api/src ./apps/api/src
 
-RUN uv sync --frozen --no-dev --no-editable
+RUN uv sync --frozen --no-dev --no-install-project
 
 
 FROM python:3.14.7-slim-bookworm AS runtime
 
 ENV PATH="/app/.venv/bin:${PATH}" \
+    PYTHONPATH="/app/apps/api/src" \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
@@ -40,6 +40,7 @@ RUN rm -rf \
     && useradd --uid 10001 --gid 10001 --create-home --shell /usr/sbin/nologin app
 
 COPY --from=builder /app/.venv /app/.venv
+COPY --chown=app:app apps/api/src ./apps/api/src
 COPY --chown=app:app alembic.ini ./alembic.ini
 COPY --chown=app:app apps/api/migrations ./apps/api/migrations
 

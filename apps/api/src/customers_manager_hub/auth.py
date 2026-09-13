@@ -9,7 +9,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from customers_manager_hub.config import Settings
 from customers_manager_hub.database import get_db_session
-from customers_manager_hub.models import AuthSession, PlatformUser
+from customers_manager_hub.models import (
+    AuthSession,
+    PlatformUser,
+    Tenant,
+    TenantMembership,
+)
 from customers_manager_hub.security import (
     DUMMY_PASSWORD_HASH,
     generate_session_token,
@@ -33,6 +38,7 @@ class LoginRequest(BaseModel):
 class UserResponse(BaseModel):
     id: str
     email: str
+    is_platform_owner: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -101,6 +107,22 @@ async def login(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password",
         )
+    if not user.is_platform_owner:
+        active_membership = await db.scalar(
+            select(TenantMembership.user_id)
+            .join(Tenant, Tenant.id == TenantMembership.tenant_id)
+            .where(
+                TenantMembership.user_id == user.id,
+                TenantMembership.is_active.is_(True),
+                Tenant.is_active.is_(True),
+            )
+            .limit(1)
+        )
+        if active_membership is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid email or password",
+            )
 
     raw_token = generate_session_token()
     now = datetime.now(UTC)
@@ -122,7 +144,11 @@ async def login(
         samesite="strict",
         path="/",
     )
-    return UserResponse(id=str(user.id), email=user.email)
+    return UserResponse(
+        id=str(user.id),
+        email=user.email,
+        is_platform_owner=user.is_platform_owner,
+    )
 
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
@@ -143,4 +169,8 @@ async def logout(
 
 @router.get("/me", response_model=UserResponse)
 async def me(current: CurrentAuthDependency) -> UserResponse:
-    return UserResponse(id=str(current.user.id), email=current.user.email)
+    return UserResponse(
+        id=str(current.user.id),
+        email=current.user.email,
+        is_platform_owner=current.user.is_platform_owner,
+    )

@@ -2,6 +2,7 @@ import asyncio
 import json
 from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from enum import StrEnum
 from time import perf_counter
 from typing import Protocol, TypeVar
@@ -16,7 +17,9 @@ from customers_manager_hub.ai_models import (
     AITaskRoute,
     AITaskType,
 )
+from customers_manager_hub.billing_runtime import AIBillingService, BillingError
 from customers_manager_hub.database import AsyncSessionFactory
+from customers_manager_hub.platform_ai_models import PlatformAITaskProfile, PlatformAITaskRoute
 
 
 class AIOperation(StrEnum):
@@ -49,6 +52,7 @@ class GenerationRequest:
     instructions: str | None = None
     json_schema: dict[str, object] | None = None
     schema_name: str = "result"
+    message_id: UUID | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,6 +68,7 @@ class GenerationResult:
 @dataclass(frozen=True, slots=True)
 class EmbeddingRequest:
     inputs: tuple[str, ...]
+    message_id: UUID | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -81,6 +86,7 @@ class TranscriptionRequest:
     filename: str
     mime_type: str
     prompt: str | None = None
+    message_id: UUID | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -180,6 +186,7 @@ class ResolvedTaskProfile:
     task_type: AITaskType
     timeout_seconds: int
     attempts_per_route: int
+    is_platform_profile: bool
     routes: tuple[ResolvedRoute, ...]
 
 
@@ -192,9 +199,11 @@ class AIGateway:
         self,
         registry: AIProviderRegistry,
         session_factory: AsyncSessionFactory,
+        billing_service: AIBillingService | None = None,
     ) -> None:
         self._registry = registry
         self._session_factory = session_factory
+        self._billing_service = billing_service
 
     async def generate(
         self,
@@ -207,6 +216,7 @@ class AIGateway:
             tenant_id,
             task_type,
             AIOperation.GENERATION,
+            request.message_id,
             lambda adapter, route, timeout: adapter.generate(
                 route.model_id,
                 request,
@@ -222,6 +232,7 @@ class AIGateway:
             tenant_id,
             AITaskType.EMBEDDING,
             AIOperation.EMBEDDING,
+            request.message_id,
             lambda adapter, route, timeout: adapter.embed(
                 route.model_id,
                 request,
@@ -241,6 +252,7 @@ class AIGateway:
             tenant_id,
             AITaskType.VOICE_TRANSCRIPTION,
             AIOperation.TRANSCRIPTION,
+            request.message_id,
             lambda adapter, route, timeout: adapter.transcribe(
                 route.model_id,
                 request,
@@ -260,42 +272,75 @@ class AIGateway:
         task_type: AITaskType,
     ) -> ResolvedTaskProfile:
         async with self._session_factory() as db:
-            profile = await db.scalar(
-                select(AITaskProfile).where(
-                    AITaskProfile.tenant_id == tenant_id,
-                    AITaskProfile.task_type == task_type.value,
+            platform_profile = await db.scalar(
+                select(PlatformAITaskProfile).where(
+                    PlatformAITaskProfile.task_type == task_type.value
                 )
             )
-            if profile is None:
-                raise AIRoutingError("task_profile_not_configured")
-            routes = list(
-                (
-                    await db.scalars(
-                        select(AITaskRoute)
-                        .where(
-                            AITaskRoute.tenant_id == tenant_id,
-                            AITaskRoute.profile_id == profile.id,
+            if platform_profile is not None:
+                is_platform_profile = True
+                profile_id = platform_profile.id
+                timeout_seconds = platform_profile.timeout_seconds
+                attempts_per_route = platform_profile.attempts_per_route
+                platform_routes = list(
+                    (
+                        await db.scalars(
+                            select(PlatformAITaskRoute)
+                            .where(PlatformAITaskRoute.profile_id == platform_profile.id)
+                            .order_by(PlatformAITaskRoute.priority, PlatformAITaskRoute.id)
                         )
-                        .order_by(AITaskRoute.priority, AITaskRoute.id)
+                    ).all()
+                )
+                route_values = [
+                    (route.provider, route.model_id, route.priority, route.parameters)
+                    for route in platform_routes
+                ]
+            else:
+                is_platform_profile = False
+                tenant_profile = await db.scalar(
+                    select(AITaskProfile).where(
+                        AITaskProfile.tenant_id == tenant_id,
+                        AITaskProfile.task_type == task_type.value,
                     )
-                ).all()
-            )
+                )
+                if tenant_profile is None:
+                    raise AIRoutingError("task_profile_not_configured")
+                profile_id = tenant_profile.id
+                timeout_seconds = tenant_profile.timeout_seconds
+                attempts_per_route = tenant_profile.attempts_per_route
+                tenant_routes = list(
+                    (
+                        await db.scalars(
+                            select(AITaskRoute)
+                            .where(
+                                AITaskRoute.tenant_id == tenant_id,
+                                AITaskRoute.profile_id == tenant_profile.id,
+                            )
+                            .order_by(AITaskRoute.priority, AITaskRoute.id)
+                        )
+                    ).all()
+                )
+                route_values = [
+                    (route.provider, route.model_id, route.priority, route.parameters)
+                    for route in tenant_routes
+                ]
 
-        if not routes:
+        if not route_values:
             raise AIRoutingError("task_profile_has_no_routes")
         return ResolvedTaskProfile(
-            id=profile.id,
-            task_type=AITaskType(profile.task_type),
-            timeout_seconds=profile.timeout_seconds,
-            attempts_per_route=profile.attempts_per_route,
+            id=profile_id,
+            task_type=task_type,
+            timeout_seconds=timeout_seconds,
+            attempts_per_route=attempts_per_route,
+            is_platform_profile=is_platform_profile,
             routes=tuple(
                 ResolvedRoute(
-                    provider=route.provider,
-                    model_id=route.model_id,
-                    priority=route.priority,
-                    parameters=dict(route.parameters),
+                    provider=provider,
+                    model_id=model_id,
+                    priority=priority,
+                    parameters=dict(parameters),
                 )
-                for route in routes
+                for provider, model_id, priority, parameters in route_values
             ),
         )
 
@@ -304,6 +349,7 @@ class AIGateway:
         tenant_id: UUID,
         task_type: AITaskType,
         operation: AIOperation,
+        message_id: UUID | None,
         call: ProviderCall[ResultT],
     ) -> ResultT:
         profile = await self._load_profile(tenant_id, task_type)
@@ -322,6 +368,7 @@ class AIGateway:
                     status=AIExecutionStatus.FAILED,
                     latency_ms=0,
                     usage=AIUsage(),
+                    message_id=message_id,
                     provider_request_id=None,
                     error_code=last_error_code,
                 )
@@ -336,12 +383,35 @@ class AIGateway:
                     status=AIExecutionStatus.FAILED,
                     latency_ms=0,
                     usage=AIUsage(),
+                    message_id=message_id,
                     provider_request_id=None,
                     error_code=last_error_code,
                 )
                 continue
 
             for attempt_number in range(1, profile.attempts_per_route + 1):
+                if self._billing_service is not None:
+                    try:
+                        await self._billing_service.ensure_can_execute(
+                            tenant_id,
+                            route.provider,
+                            route.model_id,
+                            require_price=profile.is_platform_profile,
+                        )
+                    except BillingError as exc:
+                        await self._record_trace(
+                            tenant_id=tenant_id,
+                            profile=profile,
+                            route=route,
+                            attempt_number=attempt_number,
+                            status=AIExecutionStatus.FAILED,
+                            latency_ms=0,
+                            usage=AIUsage(),
+                            message_id=message_id,
+                            provider_request_id=None,
+                            error_code=exc.code,
+                        )
+                        raise AIRoutingError(exc.code) from exc
                 started = perf_counter()
                 try:
                     result = await self._invoke_with_timeout(
@@ -362,6 +432,7 @@ class AIGateway:
                         status=AIExecutionStatus.FAILED,
                         latency_ms=latency_ms,
                         usage=AIUsage(),
+                        message_id=message_id,
                         provider_request_id=None,
                         error_code=exc.code,
                     )
@@ -379,6 +450,7 @@ class AIGateway:
                     status=AIExecutionStatus.SUCCEEDED,
                     latency_ms=latency_ms,
                     usage=result.usage,
+                    message_id=message_id,
                     provider_request_id=result.provider_request_id,
                     error_code=None,
                 )
@@ -409,29 +481,34 @@ class AIGateway:
         status: AIExecutionStatus,
         latency_ms: int,
         usage: AIUsage,
+        message_id: UUID | None,
         provider_request_id: str | None,
         error_code: str | None,
     ) -> None:
         async with self._session_factory() as db:
-            db.add(
-                AIExecutionTrace(
-                    tenant_id=tenant_id,
-                    task_profile_id=profile.id,
-                    task_type=profile.task_type.value,
-                    provider=route.provider,
-                    model_id=route.model_id,
-                    route_priority=route.priority,
-                    attempt_number=attempt_number,
-                    status=status.value,
-                    provider_request_id=provider_request_id,
-                    latency_ms=latency_ms,
-                    input_tokens=usage.input_tokens,
-                    output_tokens=usage.output_tokens,
-                    total_tokens=usage.total_tokens,
-                    audio_seconds=usage.audio_seconds,
-                    error_code=error_code,
-                )
+            trace = AIExecutionTrace(
+                tenant_id=tenant_id,
+                task_profile_id=profile.id,
+                task_type=profile.task_type.value,
+                message_id=message_id,
+                provider=route.provider,
+                model_id=route.model_id,
+                route_priority=route.priority,
+                attempt_number=attempt_number,
+                status=status.value,
+                provider_request_id=provider_request_id,
+                latency_ms=latency_ms,
+                input_tokens=usage.input_tokens,
+                output_tokens=usage.output_tokens,
+                total_tokens=usage.total_tokens,
+                audio_seconds=usage.audio_seconds,
+                error_code=error_code,
+                created_at=datetime.now(UTC),
             )
+            db.add(trace)
+            await db.flush()
+            if self._billing_service is not None:
+                await self._billing_service.record_charge(db, trace)
             await db.commit()
 
 

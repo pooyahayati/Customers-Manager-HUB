@@ -14,7 +14,9 @@ Core capabilities include:
 - Canonical contacts, external identities, conversations, messages, and attachment metadata.
 - Telegram and Website Chat through the same channel/conversation runtime.
 - Configurable Agents and versioned/published Prompts.
-- Provider-independent AI Gateway with tenant-scoped task model routing across OpenAI/Gemini-compatible routes.
+- Provider-independent AI Gateway with Owner-controlled global task routing across OpenAI/Gemini routes.
+- Platform Owner administration for Businesses, Business users, encrypted AI keys, and model selection.
+- Rial-based pay-as-you-go Business wallets with per-message token/audio usage and optional Rial/Toman display.
 - Telegram voice transcription through the configured `voice_transcription` task profile.
 - Safe Tool Runtime with encrypted credentials, authorization, approval, policy enforcement, and execution traces.
 - Tenant-owned Knowledge Base/RAG for PDF/XLSX sources using embeddings and pgvector.
@@ -127,7 +129,7 @@ Resolved / Cancelled → Optional AI Resume
 
 ## AI Configuration
 
-Model selection is tenant-scoped and task-based. Supported task profiles include:
+Model selection is platform-wide, Owner-controlled, and task-based. Supported task profiles include:
 
 - customer response;
 - voice transcription;
@@ -136,9 +138,69 @@ Model selection is tenant-scoped and task-based. Supported task profiles include
 - customer memory extraction;
 - embedding.
 
-OpenAI/Gemini API keys are deployment secrets supplied through runtime environment configuration. Secrets are not permitted inside AI route parameters. Provider/model identifiers remain configuration data rather than business-code dependencies.
+The Platform Owner can save encrypted OpenAI and Google Gemini API keys, test each connection,
+discover accessible models, or enter a model ID manually. Database-managed credentials and task
+profiles apply to all Businesses; environment variables remain a backward-compatible credential
+fallback. Secrets are never returned to the browser and are not permitted inside route parameters.
+Image generation is not part of the current task list.
+
+## Usage Billing
+
+- The canonical currency is Rial and all wallet/ledger arithmetic uses integer Rial values.
+- The Owner sets effective-dated input-token, output-token, and audio-minute selling rates per model.
+- Manual Owner credits and AI debits are recorded in an append-only Business wallet ledger.
+- Usage and charges retain the originating message ID where message context is available.
+- The Owner can display Business balances in Rial or Toman; Toman is presentation-only (`Rial / 10`).
+- Online payment and strict pre-call funds reservation are intentionally deferred.
+
+## Linux Production Installation
+
+For a single Linux server that already has Docker Engine and Docker Compose, the production overlay
+adds Caddy automatic HTTPS and removes every direct host binding except Caddy's 80/443 ports. The
+installer generates protected secrets, validates infrastructure, applies existing migrations,
+bootstraps the real Platform Owner contract, and proves full-stack readiness:
+
+```bash
+bash scripts/install-linux.sh \
+  --domain hub.example.com \
+  --email ops@example.com \
+  --tenant-name "Example Business" \
+  --tenant-slug example-business \
+  --owner-email owner@example.com
+```
+
+Docker is a prerequisite and is never installed by the script. See the complete
+[Linux production installation and upgrade runbook](docs/operations/PRODUCTION-INSTALL-LINUX.md).
 
 ## Local Development
+
+### Windows with Docker Desktop
+
+The Windows entrypoint validates Docker Desktop, creates the local .env,
+generates a development encryption key, builds the stack, applies migrations,
+and starts the services:
+
+~~~powershell
+Set-Location -LiteralPath 'W:\My Program\Customers Manager HUB'
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+.\docker-windows.ps1 setup
+.\docker-windows.ps1 up
+~~~
+
+Create the initial tenant owner on an empty database:
+
+~~~powershell
+.\docker-windows.ps1 bootstrap -TenantName 'My Company' -TenantSlug 'my-company' -Email 'owner@example.com'
+~~~
+
+See [Windows Docker Desktop Runbook](docs/operations/WINDOWS-DOCKER.md) for daily
+commands, configuration, and troubleshooting.
+
+For later runs, double-click `Start-Customers-Manager-HUB.cmd` in File Explorer.
+It starts Docker Desktop and the Compose stack when needed, then opens the Admin
+UI in Google Chrome or the Windows default browser.
+
+### Linux/macOS
 
 Create local configuration from the non-secret template:
 

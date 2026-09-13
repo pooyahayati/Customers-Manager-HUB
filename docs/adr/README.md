@@ -66,5 +66,8 @@ If an accepted decision materially changes, create a new ADR that supersedes the
 - ADR-019 — Deterministic Tenant Policy Engine
 - ADR-020 — Transactional Analytics and Effective-Dated AI Pricing
 - ADR-021 — Production Hardening at Application Boundaries
+- ADR-022 — Platform Owner, Businesses, and Global AI Configuration
+- ADR-023 — Business Operating Model and Managed Connections
+- ADR-024 — Linux Production Compose and Caddy Ingress
 
 Additional ADRs should be created only when a material implementation decision becomes imminent.
