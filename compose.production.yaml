@@ -1,0 +1,125 @@
+services:
+  api:
+    environment:
+      APP_ENV: "production"
+      APP_DEBUG: "false"
+      APP_LOG_LEVEL: "${APP_LOG_LEVEL:-INFO}"
+      DATABASE_URL: "${DATABASE_URL:?DATABASE_URL is required}"
+      REDIS_URL: "${REDIS_URL:?REDIS_URL is required}"
+      ENCRYPTION_KEY: "${ENCRYPTION_KEY:?ENCRYPTION_KEY is required}"
+      RATE_LIMIT_ENABLED: "true"
+      RATE_LIMIT_WINDOW_SECONDS: "${RATE_LIMIT_WINDOW_SECONDS:-60}"
+      RATE_LIMIT_LOGIN_REQUESTS: "${RATE_LIMIT_LOGIN_REQUESTS:-10}"
+      RATE_LIMIT_PUBLIC_REQUESTS: "${RATE_LIMIT_PUBLIC_REQUESTS:-120}"
+      RATE_LIMIT_WEBHOOK_REQUESTS: "${RATE_LIMIT_WEBHOOK_REQUESTS:-180}"
+      TRUSTED_PROXY_CIDRS: "${TRUSTED_PROXY_CIDRS:?TRUSTED_PROXY_CIDRS is required}"
+      TELEGRAM_WEBHOOK_BASE_URL: "${TELEGRAM_WEBHOOK_BASE_URL:?TELEGRAM_WEBHOOK_BASE_URL is required}"
+      S3_ENDPOINT_URL: "${S3_ENDPOINT_URL:?S3_ENDPOINT_URL is required}"
+      S3_REGION: "${S3_REGION:-us-east-1}"
+      S3_ACCESS_KEY_ID: "${S3_ACCESS_KEY_ID:?S3_ACCESS_KEY_ID is required}"
+      S3_SECRET_ACCESS_KEY: "${S3_SECRET_ACCESS_KEY:?S3_SECRET_ACCESS_KEY is required}"
+      S3_BUCKET: "${S3_BUCKET:?S3_BUCKET is required}"
+      S3_FORCE_PATH_STYLE: "${S3_FORCE_PATH_STYLE:-true}"
+      S3_ALLOW_INSECURE_INTERNAL_ENDPOINT: "${S3_ALLOW_INSECURE_INTERNAL_ENDPOINT:-true}"
+    ports: !reset []
+    depends_on:
+      object-storage:
+        condition: service_healthy
+
+  worker:
+    environment:
+      APP_ENV: "production"
+      APP_DEBUG: "false"
+      APP_LOG_LEVEL: "${APP_LOG_LEVEL:-INFO}"
+      DATABASE_URL: "${DATABASE_URL:?DATABASE_URL is required}"
+      REDIS_URL: "${REDIS_URL:?REDIS_URL is required}"
+      ENCRYPTION_KEY: "${ENCRYPTION_KEY:?ENCRYPTION_KEY is required}"
+      S3_ENDPOINT_URL: "${S3_ENDPOINT_URL:?S3_ENDPOINT_URL is required}"
+      S3_REGION: "${S3_REGION:-us-east-1}"
+      S3_ACCESS_KEY_ID: "${S3_ACCESS_KEY_ID:?S3_ACCESS_KEY_ID is required}"
+      S3_SECRET_ACCESS_KEY: "${S3_SECRET_ACCESS_KEY:?S3_SECRET_ACCESS_KEY is required}"
+      S3_BUCKET: "${S3_BUCKET:?S3_BUCKET is required}"
+      S3_FORCE_PATH_STYLE: "${S3_FORCE_PATH_STYLE:-true}"
+      S3_ALLOW_INSECURE_INTERNAL_ENDPOINT: "${S3_ALLOW_INSECURE_INTERNAL_ENDPOINT:-true}"
+    depends_on:
+      object-storage:
+        condition: service_healthy
+
+  web:
+    environment:
+      CMH_API_BASE_URL: "http://api:8000"
+    ports: !reset []
+
+  postgres:
+    image: "${CMH_POSTGRES_IMAGE:-customers-manager-hub-production/postgres:18.6-pgvector0.8.6}"
+    container_name: !reset null
+    environment:
+      POSTGRES_DB: "${POSTGRES_DB:?POSTGRES_DB is required}"
+      POSTGRES_USER: "${POSTGRES_USER:?POSTGRES_USER is required}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}"
+    ports: !reset []
+
+  redis:
+    container_name: !reset null
+    ports: !reset []
+
+  object-storage:
+    container_name: !reset null
+    environment:
+      AWS_ACCESS_KEY_ID: "${S3_ACCESS_KEY_ID:?S3_ACCESS_KEY_ID is required}"
+      AWS_SECRET_ACCESS_KEY: "${S3_SECRET_ACCESS_KEY:?S3_SECRET_ACCESS_KEY is required}"
+    ports: !reset []
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:8333/status"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  caddy:
+    image: "${CADDY_IMAGE:-caddy:2.10.2-alpine}"
+    restart: unless-stopped
+    environment:
+      CMH_DOMAIN: "${CMH_DOMAIN:?CMH_DOMAIN is required}"
+      ACME_EMAIL: "${ACME_EMAIL:?ACME_EMAIL is required}"
+    depends_on:
+      api:
+        condition: service_healthy
+      web:
+        condition: service_healthy
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./infra/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:2019/config/"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    networks:
+      cmh:
+        ipv4_address: "${CADDY_INTERNAL_IP:?CADDY_INTERNAL_IP is required}"
+
+volumes:
+  caddy_data:
+  caddy_config:
+
+networks:
+  cmh:
+    ipam:
+      config:
+        - subnet: "${CMH_DOCKER_SUBNET:?CMH_DOCKER_SUBNET is required}"

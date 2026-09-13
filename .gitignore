@@ -2,6 +2,7 @@
 .env
 .env.*
 !.env.example
+!.env.production.example
 *.pem
 *.key
 *.crt
@@ -47,6 +48,7 @@ coverage/
 # OS
 .DS_Store
 Thumbs.db
+desktop.ini
 
 # Logs / runtime
 *.log

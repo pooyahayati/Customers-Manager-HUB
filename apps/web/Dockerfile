@@ -1,4 +1,7 @@
-FROM node:24.20.0-bookworm-slim AS builder
+ARG NODE_IMAGE=node:24.20.0-bookworm-slim
+ARG RUNTIME_IMAGE=node:24.20.0-bookworm-slim
+
+FROM ${NODE_IMAGE} AS builder
 
 ENV PNPM_HOME="/pnpm" \
     PATH="/pnpm:${PATH}" \
@@ -19,7 +22,7 @@ COPY apps/web ./apps/web
 RUN pnpm --filter @customers-manager-hub/web build
 
 
-FROM node:24.20.0-bookworm-slim AS runtime
+FROM ${RUNTIME_IMAGE} AS runtime
 
 ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1 \
