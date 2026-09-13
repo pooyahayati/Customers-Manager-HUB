@@ -11,6 +11,8 @@ from customers_manager_hub.ai_profiles import router as ai_profiles_router
 from customers_manager_hub.ai_providers import build_live_provider_registry
 from customers_manager_hub.analytics import router as analytics_router
 from customers_manager_hub.auth import router as auth_router
+from customers_manager_hub.billing_runtime import AIBillingService
+from customers_manager_hub.business_billing import router as business_billing_router
 from customers_manager_hub.channel_gateway import ChannelRegistry
 from customers_manager_hub.channel_queue import ChannelJobQueue, create_channel_redis
 from customers_manager_hub.channel_webhooks import router as channel_webhooks_router
@@ -26,6 +28,9 @@ from customers_manager_hub.knowledge_queue import KnowledgeJobQueue
 from customers_manager_hub.knowledge_storage import build_object_storage
 from customers_manager_hub.logging_config import configure_logging
 from customers_manager_hub.memory import router as memory_router
+from customers_manager_hub.platform_admin import router as platform_admin_router
+from customers_manager_hub.platform_ai import router as platform_ai_router
+from customers_manager_hub.platform_billing import router as platform_billing_router
 from customers_manager_hub.policies import router as policies_router
 from customers_manager_hub.production_hardening import (
     ProductionHardeningMiddleware,
@@ -62,11 +67,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 ai_provider_registry = build_live_provider_registry(
                     resolved_settings,
                     external_http_client,
+                    session_factory,
                 )
                 channel_registry = ChannelRegistry(
                     (TelegramAdapter(external_http_client), WebsiteAdapter())
                 )
-                application.state.ai_gateway = AIGateway(ai_provider_registry, session_factory)
+                application.state.ai_gateway = AIGateway(
+                    ai_provider_registry,
+                    session_factory,
+                    AIBillingService(session_factory),
+                )
+                application.state.external_http_client = external_http_client
                 application.state.channel_registry = channel_registry
                 application.state.channel_queue = channel_queue
                 yield
@@ -92,6 +103,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.include_router(health_router)
     application.include_router(auth_router)
     application.include_router(tenants_router)
+    application.include_router(platform_admin_router)
+    application.include_router(platform_ai_router)
+    application.include_router(platform_billing_router)
+    application.include_router(business_billing_router)
     application.include_router(ai_profiles_router)
     application.include_router(prompt_router)
     application.include_router(agents_router)

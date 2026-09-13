@@ -696,6 +696,7 @@ async def _generate_tool_aware_response(
                 instructions=instructions,
                 json_schema=schema,
                 schema_name="agent_tool_decision",
+                message_id=snapshot.inbound_message_id,
             ),
             renew_interval_seconds=renew_interval_seconds,
         )
@@ -816,6 +817,7 @@ async def process_agent_event(
                             instructions=compose_instructions(
                                 snapshot.prompt_content, snapshot.channel_type
                             ),
+                            message_id=snapshot.inbound_message_id,
                         ),
                         renew_interval_seconds=lease_renew_interval_seconds,
                     )

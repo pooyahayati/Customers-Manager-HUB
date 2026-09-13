@@ -120,6 +120,7 @@ class AIExecutionTrace(Base):
         CheckConstraint("attempt_number >= 1", name="ck_ai_execution_traces_attempt_number"),
         CheckConstraint("latency_ms >= 0", name="ck_ai_execution_traces_latency"),
         Index("ix_ai_execution_traces_tenant_created", "tenant_id", "created_at"),
+        Index("ix_ai_execution_traces_tenant_message", "tenant_id", "message_id"),
     )
 
     id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
@@ -129,6 +130,11 @@ class AIExecutionTrace(Base):
         nullable=False,
     )
     task_profile_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    message_id: Mapped[UUID | None] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("messages.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     task_type: Mapped[str] = mapped_column(String(64), nullable=False)
     provider: Mapped[str] = mapped_column(String(32), nullable=False)
     model_id: Mapped[str] = mapped_column(String(255), nullable=False)

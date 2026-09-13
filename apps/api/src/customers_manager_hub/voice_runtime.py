@@ -231,6 +231,7 @@ async def process_voice_transcription(
                 audio=media.data,
                 filename=media.filename,
                 mime_type=media.mime_type,
+                message_id=message_id,
             ),
         )
     except AIRoutingError as exc:

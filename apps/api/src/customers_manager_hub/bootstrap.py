@@ -1,6 +1,7 @@
 import argparse
 import asyncio
 import getpass
+import sys
 from uuid import UUID
 
 from sqlalchemy import func, select
@@ -50,7 +51,11 @@ async def bootstrap_initial_owner(
                 )
 
             tenant = Tenant(slug=normalized_slug, name=normalized_name)
-            user = PlatformUser(email=normalized_email, password_hash=encoded_password)
+            user = PlatformUser(
+                email=normalized_email,
+                password_hash=encoded_password,
+                is_platform_owner=True,
+            )
             db.add_all([tenant, user])
             await db.flush()
 
@@ -68,7 +73,10 @@ async def bootstrap_initial_owner(
                     action="tenant.bootstrap",
                     target_type="tenant",
                     target_id=tenant.id,
-                    details={"role": TenantRole.OWNER.value},
+                    details={
+                        "role": TenantRole.OWNER.value,
+                        "is_platform_owner": True,
+                    },
                 )
             )
             return tenant.id, user.id
@@ -81,15 +89,31 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--tenant-name", required=True)
     parser.add_argument("--tenant-slug", required=True)
     parser.add_argument("--email", required=True)
+    parser.add_argument(
+        "--password-stdin",
+        action="store_true",
+        help="Read one password line from stdin instead of prompting",
+    )
     return parser.parse_args()
 
 
-def main() -> None:
-    args = parse_args()
+def read_bootstrap_password(*, password_stdin: bool) -> str:
+    if password_stdin:
+        password = sys.stdin.readline().rstrip("\r\n")
+        if not password:
+            raise SystemExit("Password from stdin must not be empty")
+        return password
+
     password = getpass.getpass("Password: ")
     confirmation = getpass.getpass("Confirm password: ")
     if password != confirmation:
         raise SystemExit("Passwords do not match")
+    return password
+
+
+def main() -> None:
+    args = parse_args()
+    password = read_bootstrap_password(password_stdin=args.password_stdin)
 
     try:
         tenant_id, user_id = asyncio.run(

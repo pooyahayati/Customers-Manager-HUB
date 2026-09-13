@@ -50,7 +50,12 @@ def test_knowledge_object_key_is_server_scoped_and_path_safe() -> None:
 
 
 def test_storage_builder_requires_credentials_but_not_custom_endpoint() -> None:
-    unavailable = build_object_storage(Settings(app_env="test"))
+    unavailable = build_object_storage(
+        Settings(
+            app_env="test",
+            _env_file=None,  # pyright: ignore[reportCallIssue]
+        )
+    )
     assert isinstance(unavailable, UnavailableObjectStorage)
 
     aws_style = build_object_storage(
@@ -58,6 +63,7 @@ def test_storage_builder_requires_credentials_but_not_custom_endpoint() -> None:
             app_env="test",
             s3_access_key_id=SecretStr("access"),
             s3_secret_access_key=SecretStr("secret"),
+            _env_file=None,  # pyright: ignore[reportCallIssue]
         )
     )
     assert isinstance(aws_style, S3ObjectStorage)

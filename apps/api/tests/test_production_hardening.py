@@ -149,6 +149,31 @@ def test_production_configuration_rejects_insecure_runtime_options() -> None:
     assert settings.rate_limit_enabled is True
 
 
+def test_production_allows_only_explicit_single_host_http_object_storage() -> None:
+    def production_settings(s3_endpoint_url: str) -> Settings:
+        return Settings(
+            app_env="production",
+            database_url=(
+                "postgresql://cmh:generated-password@postgres:5432/customers_manager_hub"
+            ),
+            encryption_key=_VALID_ENCRYPTION_KEY,
+            s3_endpoint_url=s3_endpoint_url,
+            s3_access_key_id="generated-access-key",
+            s3_secret_access_key="generated-secret-key",
+            s3_allow_insecure_internal_endpoint=True,
+            _env_file=None,  # pyright: ignore[reportCallIssue]
+        )
+
+    settings = production_settings("http://object-storage:8333")
+    assert settings.s3_endpoint_url == "http://object-storage:8333"
+
+    with pytest.raises(ValidationError):
+        production_settings("http://storage.example.com")
+
+    with pytest.raises(ValidationError):
+        production_settings("http://127.0.0.1:8333")
+
+
 def test_blank_development_encryption_key_is_treated_as_unset() -> None:
     settings = Settings(encryption_key="", _env_file=None)  # pyright: ignore[reportCallIssue]
     assert settings.encryption_key is None

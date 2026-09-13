@@ -1,4 +1,5 @@
 import json
+from collections.abc import Awaitable, Callable
 from typing import cast
 from urllib.parse import quote
 
@@ -18,11 +19,15 @@ from customers_manager_hub.ai_gateway import (
     TranscriptionResult,
 )
 from customers_manager_hub.config import Settings
+from customers_manager_hub.database import AsyncSessionFactory
 from customers_manager_hub.gemini_transcription import transcribe_with_gemini
+from customers_manager_hub.platform_ai_models import PlatformAIProvider
+from customers_manager_hub.platform_ai_security import load_platform_ai_secret
 
 OPENAI_BASE_URL = "https://api.openai.com/v1"
 GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
 LIVE_AI_PROVIDER_KEYS = frozenset({"openai", "gemini"})
+APIKeySource = str | None | Callable[[], Awaitable[str | None]]
 
 
 class _OpenAIContent(BaseModel):
@@ -255,7 +260,7 @@ def _model_path(model_id: str) -> str:
 
 
 class OpenAIAdapter:
-    def __init__(self, client: httpx2.AsyncClient, api_key: str | None) -> None:
+    def __init__(self, client: httpx2.AsyncClient, api_key: APIKeySource) -> None:
         self._client = client
         self._api_key = api_key
 
@@ -270,10 +275,16 @@ class OpenAIAdapter:
             AIOperation.TRANSCRIPTION,
         }
 
-    def _headers(self) -> dict[str, str]:
-        if not self._api_key:
+    async def _resolve_api_key(self) -> str | None:
+        if isinstance(self._api_key, str) or self._api_key is None:
+            return self._api_key
+        return await self._api_key()
+
+    async def _headers(self) -> dict[str, str]:
+        api_key = await self._resolve_api_key()
+        if not api_key:
             raise AIProviderError("openai_not_configured", retryable=False)
-        return {"Authorization": f"Bearer {self._api_key}"}
+        return {"Authorization": f"Bearer {api_key}"}
 
     async def generate(
         self,
@@ -306,7 +317,7 @@ class OpenAIAdapter:
             self._client,
             provider=self.key,
             url=f"{OPENAI_BASE_URL}/responses",
-            headers=self._headers(),
+            headers=await self._headers(),
             payload=payload,
             timeout_seconds=timeout_seconds,
         )
@@ -336,7 +347,7 @@ class OpenAIAdapter:
             self._client,
             provider=self.key,
             url=f"{OPENAI_BASE_URL}/embeddings",
-            headers=self._headers(),
+            headers=await self._headers(),
             payload=payload,
             timeout_seconds=timeout_seconds,
         )
@@ -374,7 +385,7 @@ class OpenAIAdapter:
         try:
             response = await self._client.post(
                 f"{OPENAI_BASE_URL}/audio/transcriptions",
-                headers=self._headers(),
+                headers=await self._headers(),
                 data=data,
                 files={"file": (request.filename, request.audio, request.mime_type)},
                 timeout=float(timeout_seconds),
@@ -403,7 +414,7 @@ class OpenAIAdapter:
 
 
 class GeminiAdapter:
-    def __init__(self, client: httpx2.AsyncClient, api_key: str | None) -> None:
+    def __init__(self, client: httpx2.AsyncClient, api_key: APIKeySource) -> None:
         self._client = client
         self._api_key = api_key
 
@@ -418,10 +429,16 @@ class GeminiAdapter:
             AIOperation.TRANSCRIPTION,
         }
 
-    def _headers(self) -> dict[str, str]:
-        if not self._api_key:
+    async def _resolve_api_key(self) -> str | None:
+        if isinstance(self._api_key, str) or self._api_key is None:
+            return self._api_key
+        return await self._api_key()
+
+    async def _headers(self) -> dict[str, str]:
+        api_key = await self._resolve_api_key()
+        if not api_key:
             raise AIProviderError("gemini_not_configured", retryable=False)
-        return {"x-goog-api-key": self._api_key}
+        return {"x-goog-api-key": api_key}
 
     async def generate(
         self,
@@ -450,7 +467,7 @@ class GeminiAdapter:
             self._client,
             provider=self.key,
             url=f"{GEMINI_BASE_URL}/models/{_model_path(model_id)}:generateContent",
-            headers=self._headers(),
+            headers=await self._headers(),
             payload=payload,
             timeout_seconds=timeout_seconds,
         )
@@ -487,7 +504,7 @@ class GeminiAdapter:
             self._client,
             provider=self.key,
             url=f"{GEMINI_BASE_URL}/models/{_model_path(model_id)}:batchEmbedContents",
-            headers=self._headers(),
+            headers=await self._headers(),
             payload={"requests": requests},
             timeout_seconds=timeout_seconds,
         )
@@ -511,7 +528,7 @@ class GeminiAdapter:
     ) -> TranscriptionResult:
         return await transcribe_with_gemini(
             self._client,
-            self._api_key,
+            await self._resolve_api_key(),
             model_id,
             request,
             parameters,
@@ -522,6 +539,7 @@ class GeminiAdapter:
 def build_live_provider_registry(
     settings: Settings,
     client: httpx2.AsyncClient,
+    session_factory: AsyncSessionFactory | None = None,
 ) -> AIProviderRegistry:
     openai_key = (
         settings.openai_api_key.get_secret_value() if settings.openai_api_key is not None else None
@@ -531,9 +549,33 @@ def build_live_provider_registry(
         if settings.google_gemini_api_key is not None
         else None
     )
+    def source(
+        provider: PlatformAIProvider,
+        fallback: str | None,
+    ) -> APIKeySource:
+        factory = session_factory
+        if factory is None:
+            return fallback
+
+        async def load() -> str | None:
+            return await load_platform_ai_secret(
+                settings,
+                factory,
+                provider,
+                fallback,
+            )
+
+        return load
+
     return AIProviderRegistry(
         [
-            OpenAIAdapter(client, openai_key),
-            GeminiAdapter(client, gemini_key),
+            OpenAIAdapter(
+                client,
+                source(PlatformAIProvider.OPENAI, openai_key),
+            ),
+            GeminiAdapter(
+                client,
+                source(PlatformAIProvider.GEMINI, gemini_key),
+            ),
         ]
     )

@@ -81,7 +81,10 @@ def test_channel_secret_rejects_wrong_tenant_account_kind_and_key() -> None:
 
 
 def test_channel_secret_requires_generated_32_byte_key() -> None:
-    missing = Settings(app_env="test")
+    missing = Settings(
+        app_env="test",
+        _env_file=None,  # pyright: ignore[reportCallIssue]
+    )
     with pytest.raises(ChannelSecretConfigurationError):
         encrypt_channel_secret(
             missing,
@@ -93,4 +96,8 @@ def test_channel_secret_requires_generated_32_byte_key() -> None:
 
     short_key = base64.urlsafe_b64encode(b"short").decode()
     with pytest.raises(ValidationError):
-        Settings(app_env="test", encryption_key=SecretStr(short_key))
+        Settings(
+            app_env="test",
+            encryption_key=SecretStr(short_key),
+            _env_file=None,  # pyright: ignore[reportCallIssue]
+        )

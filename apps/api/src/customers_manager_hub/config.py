@@ -41,6 +41,7 @@ class Settings(BaseSettings):
     s3_access_key_id: SecretStr | None = None
     s3_secret_access_key: SecretStr | None = None
     s3_force_path_style: bool = True
+    s3_allow_insecure_internal_endpoint: bool = False
 
     rate_limit_enabled: bool = True
     rate_limit_window_seconds: int = Field(default=60, ge=10, le=3600)
@@ -176,12 +177,18 @@ class Settings(BaseSettings):
             raise ValueError("S3 access key ID and secret access key must be configured together")
         if self.s3_endpoint_url is not None and self.s3_access_key_id is None:
             raise ValueError("Configured S3 endpoint requires explicit S3 credentials")
-        if (
-            self.app_env in {"staging", "production"}
-            and self.s3_endpoint_url is not None
-            and not self.s3_endpoint_url.startswith("https://")
-        ):
-            raise ValueError("Staging/production S3 endpoint must use HTTPS")
+        if self.app_env in {"staging", "production"} and self.s3_endpoint_url is not None:
+            parsed_s3_endpoint = urlsplit(self.s3_endpoint_url)
+            insecure_internal_endpoint_allowed = (
+                self.s3_allow_insecure_internal_endpoint
+                and parsed_s3_endpoint.scheme == "http"
+                and parsed_s3_endpoint.hostname == "object-storage"
+            )
+            if parsed_s3_endpoint.scheme != "https" and not insecure_internal_endpoint_allowed:
+                raise ValueError(
+                    "Staging/production S3 endpoint must use HTTPS unless the explicit "
+                    "single-host object-storage exception is enabled"
+                )
         if self.app_env in {"staging", "production"} and self.s3_access_key_id is not None:
             access_key = self.s3_access_key_id.get_secret_value().strip()
             secret_key = (
