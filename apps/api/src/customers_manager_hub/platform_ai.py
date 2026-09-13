@@ -482,9 +482,7 @@ async def put_platform_task_profile(
     db: DbSession,
 ) -> PlatformTaskProfileResponse:
     profile = await db.scalar(
-        select(PlatformAITaskProfile).where(
-            PlatformAITaskProfile.task_type == task_type.value
-        )
+        select(PlatformAITaskProfile).where(PlatformAITaskProfile.task_type == task_type.value)
     )
     if profile is None:
         profile = PlatformAITaskProfile(
@@ -500,9 +498,7 @@ async def put_platform_task_profile(
         profile.attempts_per_route = payload.attempts_per_route
         profile.updated_by_user_id = owner.id
         await db.execute(
-            delete(PlatformAITaskRoute).where(
-                PlatformAITaskRoute.profile_id == profile.id
-            )
+            delete(PlatformAITaskRoute).where(PlatformAITaskRoute.profile_id == profile.id)
         )
     for priority, route in enumerate(payload.routes):
         db.add(

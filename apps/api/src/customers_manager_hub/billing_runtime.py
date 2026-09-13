@@ -51,11 +51,7 @@ def calculate_charge_rial(
 ) -> int:
     input_cost = Decimal(input_tokens or 0) / _MILLION * price.input_per_million_rial
     output_cost = Decimal(output_tokens or 0) / _MILLION * price.output_per_million_rial
-    audio_cost = (
-        Decimal(str(audio_seconds or 0.0))
-        / _MINUTE_SECONDS
-        * price.audio_per_minute_rial
-    )
+    audio_cost = Decimal(str(audio_seconds or 0.0)) / _MINUTE_SECONDS * price.audio_per_minute_rial
     return int((input_cost + output_cost + audio_cost).to_integral_value(rounding=ROUND_CEILING))
 
 

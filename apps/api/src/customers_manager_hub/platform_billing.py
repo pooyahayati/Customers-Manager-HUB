@@ -269,9 +269,7 @@ async def credit_business_wallet(
 ) -> WalletTransactionResponse:
     await _require_business(db, business_id)
     wallet = await db.scalar(
-        select(BusinessWallet)
-        .where(BusinessWallet.tenant_id == business_id)
-        .with_for_update()
+        select(BusinessWallet).where(BusinessWallet.tenant_id == business_id).with_for_update()
     )
     if wallet is None:
         wallet = BusinessWallet(tenant_id=business_id, balance_rial=0)

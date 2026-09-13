@@ -549,6 +549,7 @@ def build_live_provider_registry(
         if settings.google_gemini_api_key is not None
         else None
     )
+
     def source(
         provider: PlatformAIProvider,
         fallback: str | None,

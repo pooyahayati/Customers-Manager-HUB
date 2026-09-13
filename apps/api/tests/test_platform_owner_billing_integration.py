@@ -58,10 +58,7 @@ def truncate_database() -> None:
             )
         )
         connection.execute(
-            text(
-                "INSERT INTO platform_billing_settings (id, display_unit) "
-                "VALUES (1, 'rial')"
-            )
+            text("INSERT INTO platform_billing_settings (id, display_unit) VALUES (1, 'rial')")
         )
 
 

@@ -37,6 +37,10 @@ LABEL org.opencontainers.image.title="Customers Manager HUB PostgreSQL"
 LABEL org.opencontainers.image.description="PostgreSQL 18.6 with pgvector 0.8.6"
 LABEL org.opencontainers.image.source="https://github.com/pooyahayati/Customers-Manager-HUB"
 
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends --only-upgrade libpcre2-8-0 \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY --from=gosu-builder /out/gosu /usr/local/bin/gosu
 COPY --from=pgvector-builder /usr/lib/postgresql/18/lib/vector.so /usr/lib/postgresql/18/lib/vector.so
 COPY --from=pgvector-builder /usr/share/postgresql/18/extension/vector.control /usr/share/postgresql/18/extension/vector.control
